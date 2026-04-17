@@ -1,0 +1,28 @@
+# Enable rewrite engine
+RewriteEngine On
+
+# Allow CORS preflight requests
+# Handled in db.php
+# Header always set Access-Control-Allow-Origin "*"
+# Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+# Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
+# Header always set Access-Control-Allow-Credentials "true"
+
+# Handle OPTIONS requests
+# Handled in db.php
+# RewriteCond %{REQUEST_METHOD} OPTIONS
+# RewriteRule ^(.*)$ $1 [R=200,L]
+
+# Security headers
+Header set X-Content-Type-Options "nosniff"
+Header set X-Frame-Options "SAMEORIGIN"
+Header set X-XSS-Protection "1; mode=block"
+
+# Prevent directory listing
+Options -Indexes
+
+# PHP settings
+php_value upload_max_filesize 10M
+php_value post_max_size 10M
+php_value max_execution_time 300
+php_value max_input_time 300
