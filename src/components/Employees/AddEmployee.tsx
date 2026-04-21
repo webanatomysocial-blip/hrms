@@ -61,25 +61,24 @@ const AddEmployees: React.FC = () => {
         document.body.appendChild(alertDiv);
         setTimeout(() => alertDiv.remove(), 5000);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Add employee failed:', error);
-      alert('Failed to add employee. Please try again.');
+      alert(error.message || 'Failed to add employee. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const departments = [
-    'Administration',
-    'Human Resources',
-    'Development',
-    'Design',
-    'Marketing',
-    'Sales',
-    'Finance',
-    'Operations',
-    'Support',
-    'Testing'
+    'CEO',
+    'CMO',
+    'Account Manager',
+    'Developers',
+    'Designers',
+    'SEO',
+    'SMM',
+    'SuccessWikis',
+    'Performance Marketer'
   ];
 
   return (

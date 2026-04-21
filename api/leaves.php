@@ -42,9 +42,11 @@ switch($method) {
 
 function getAllLeaves($db) {
     try {
-        $query = "SELECT lr.*, u.name as approved_by_name 
+        $query = "SELECT lr.*, u_app.name as approved_by_name 
                   FROM leave_requests lr 
-                  LEFT JOIN users u ON lr.approved_by = u.id 
+                  JOIN users u_emp ON lr.employee_id = u_emp.id
+                  LEFT JOIN users u_app ON lr.approved_by = u_app.id 
+                  WHERE u_emp.role != 'admin'
                   ORDER BY lr.created_at DESC";
         $stmt = $db->prepare($query);
         $stmt->execute();

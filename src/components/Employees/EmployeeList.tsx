@@ -129,15 +129,15 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
 
 
   const allDepartments = [
-    'Administration',
-    'Human Resources',
-    'Development',
-    'Design',
-    'Marketing',
-    'Sales',
-    'Finance',
-    'Operations',
-    'Support'
+    'CEO',
+    'CMO',
+    'Account Manager',
+    'Developers',
+    'Designers',
+    'SEO',
+    'SMM',
+    'SuccessWikis',
+    'Performance Marketer'
   ];
 
   return (
@@ -287,77 +287,128 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
                 </thead>
                 <tbody>
                   {filteredEmployees.map((employee) => (
-                    <tr key={employee.id}>
-                      <td>
-                        <div className="d-flex align-items-center">
-                          <div 
-                            className="rounded-circle d-flex align-items-center justify-content-center me-3 fw-800 shadow-sm"
-                            style={{ 
-                              width: '44px', 
-                              height: '44px', 
-                              background: 'var(--midnight-elevated)',
-                              border: '1px solid var(--midnight-border-bright)',
-                              color: 'var(--accent-cyan)',
-                              fontSize: '1rem'
-                            }}
-                          >
-                            {employee.name.charAt(0)}
-                          </div>
-                          <div>
-                            <div className="text-white fw-700 mb-0">{employee.name}</div>
-                            <div className="text-dimmed small fw-500 d-flex align-items-center">
-                              <Mail size={12} className="me-1 opacity-50" />
-                              {employee.email}
+                    <React.Fragment key={employee.id}>
+                      <tr className={editingEmployee?.id === employee.id ? 'bg-cyan bg-opacity-05 shadow-inner' : ''}>
+                        <td>
+                          <div className="d-flex align-items-center">
+                            <div 
+                              className="rounded-circle d-flex align-items-center justify-content-center me-3 fw-800 shadow-sm"
+                              style={{ 
+                                width: '44px', 
+                                height: '44px', 
+                                background: 'var(--midnight-elevated)',
+                                border: '1px solid var(--midnight-border-bright)',
+                                color: 'var(--accent-cyan)',
+                                fontSize: '1rem'
+                              }}
+                            >
+                              {employee.name.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="text-white fw-700 mb-0">{employee.name}</div>
+                              <div className="text-dimmed small fw-500 d-flex align-items-center">
+                                <Mail size={12} className="me-1 opacity-50" />
+                                {employee.email}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="d-flex align-items-center text-secondary small fw-600">
-                          <Building size={14} className="me-2 text-indigo opacity-50" />
-                          {employee.department || 'Unassigned'}
-                        </div>
-                      </td>
-                      <td>
-                        <div className="text-white small fw-700">{employee.position || 'Standard'}</div>
-                      </td>
-                      <td>
-                        <div className="d-flex align-items-center">
-                          <span className={`badge rounded-pill px-3 py-1 fw-700 text-uppercase`} style={{ 
-                            fontSize: '0.65rem', 
-                            background: employee.role === 'admin' ? 'rgba(251,191,36,0.1)' : 'rgba(6,182,212,0.1)',
-                            color: employee.role === 'admin' ? 'var(--accent-gold)' : 'var(--accent-cyan)',
-                            border: `1px solid ${employee.role === 'admin' ? 'rgba(251,191,36,0.1)' : 'rgba(6,182,212,0.1)'}`
-                          }}>
-                            {employee.role}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="d-flex align-items-center text-dimmed small fw-600">
-                          <Clock size={14} className="me-2 opacity-50" />
-                          {employee.joining_date ? new Date(employee.joining_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '---'}
-                        </div>
-                      </td>
-                      <td>
-                        <div className="d-flex gap-2 justify-content-end">
-                          <button
-                            onClick={() => handleEditEmployee(employee)}
-                            className="btn btn-sm btn-premium-secondary p-2 rounded-circle"
-                            title="Edit Employee"
-                          >
-                            <Edit size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteEmployee(employee.id, employee.name)}
-                            className="btn btn-sm btn-outline-danger p-2 rounded-circle border-0 hover-bg-danger bg-opacity-05"
-                            title="Delete Employee"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                        <td>
+                          <div className="d-flex align-items-center text-secondary small fw-600">
+                            <Building size={14} className="me-2 text-indigo opacity-50" />
+                            {employee.department || 'Unassigned'}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="text-white small fw-700">{employee.position || 'Standard'}</div>
+                        </td>
+                        <td>
+                          <div className="d-flex align-items-center">
+                            <span className={`badge rounded-pill px-3 py-1 fw-700 text-uppercase`} style={{ 
+                              fontSize: '0.65rem', 
+                              background: employee.role === 'admin' ? 'rgba(251,191,36,0.1)' : 'rgba(6,182,212,0.1)',
+                              color: employee.role === 'admin' ? 'var(--accent-gold)' : 'var(--accent-cyan)',
+                              border: `1px solid ${employee.role === 'admin' ? 'rgba(251,191,36,0.1)' : 'rgba(6,182,212,0.1)'}`
+                            }}>
+                              {employee.role}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="d-flex align-items-center text-dimmed small fw-600">
+                            <Clock size={14} className="me-2 opacity-50" />
+                            {employee.joining_date ? new Date(employee.joining_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '---'}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="d-flex gap-2 justify-content-end">
+                            <button
+                              onClick={() => handleEditEmployee(employee)}
+                              className={`btn btn-sm p-2 rounded-circle transition-all ${editingEmployee?.id === employee.id ? 'btn-premium-primary' : 'btn-premium-secondary'}`}
+                              title="Edit Employee"
+                            >
+                              <Edit size={16} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteEmployee(employee.id, employee.name)}
+                              className="btn btn-sm btn-outline-danger p-2 rounded-circle border-0 hover-bg-danger bg-opacity-05"
+                              title="Delete Employee"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {showEditModal && editingEmployee?.id === employee.id && (
+                        <tr className="bg-cyan bg-opacity-02">
+                          <td colSpan={6} className="p-0 border-0">
+                            <div className="p-4 mx-4 mb-4 rounded-3 border border-cyan border-opacity-10 shadow-lg fade-in" style={{ background: 'rgba(255,255,255,0.01)' }}>
+                              <form onSubmit={handleUpdateEmployee}>
+                                <div className="row g-4">
+                                  <div className="col-md-4">
+                                    <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Full Name</label>
+                                    <input id="inlineEditName" type="text" required value={editFormData.name} onChange={(e) => setEditFormData(prev => ({...prev, name: e.target.value}))} className="form-control bg-dark border-secondary border-opacity-20" />
+                                  </div>
+                                  <div className="col-md-4">
+                                    <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Email Address</label>
+                                    <input id="inlineEditEmail" type="email" required value={editFormData.email} onChange={(e) => setEditFormData(prev => ({...prev, email: e.target.value}))} className="form-control bg-dark border-secondary border-opacity-20" />
+                                  </div>
+                                  <div className="col-md-4">
+                                    <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Role</label>
+                                    <select id="inlineEditRole" required value={editFormData.role} onChange={(e) => setEditFormData(prev => ({...prev, role: e.target.value as any}))} className="form-select bg-dark border-secondary border-opacity-20">
+                                      <option value="employee">Employee</option>
+                                      <option value="admin">Admin</option>
+                                    </select>
+                                  </div>
+                                  <div className="col-md-4">
+                                    <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Department</label>
+                                    <select id="inlineEditDepartment" value={editFormData.department} onChange={(e) => setEditFormData(prev => ({...prev, department: e.target.value}))} className="form-select bg-dark border-secondary border-opacity-20">
+                                      <option value="">Select Department</option>
+                                      {allDepartments.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="col-md-4">
+                                    <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Position</label>
+                                    <input id="inlineEditPosition" type="text" value={editFormData.position} onChange={(e) => setEditFormData(prev => ({...prev, position: e.target.value}))} className="form-control bg-dark border-secondary border-opacity-20" />
+                                  </div>
+                                  <div className="col-md-4">
+                                    <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Joining Date</label>
+                                    <input id="inlineEditJoiningDate" type="date" value={editFormData.joining_date} onChange={(e) => setEditFormData(prev => ({...prev, joining_date: e.target.value}))} className="form-control bg-dark border-secondary border-opacity-20" />
+                                  </div>
+                                  <div className="col-12 d-flex justify-content-end gap-2 mt-2">
+                                    <button type="button" onClick={() => { setShowEditModal(false); setEditingEmployee(null); }} className="btn btn-sm btn-premium-secondary px-3" disabled={loading}>Cancel</button>
+                                    <button type="submit" disabled={loading} className="btn btn-sm btn-premium-primary px-4 shadow-glow-cyan">
+                                      {loading ? <div className="spinner-border spinner-border-sm me-2" /> : <Save className="me-2" size={14} />} 
+                                      Update Employee
+                                    </button>
+                                  </div>
+                                </div>
+                              </form>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
@@ -425,66 +476,6 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
                 </div>
               );
             })}
-          </div>
-        </div>
-      )}
-
-      {/* Edit Component remains functional with updated modal classes if defined in index.css */}
-      {showEditModal && editingEmployee && (
-        <div className="modal show d-block premium-modal" style={{ backdropFilter: 'blur(8px)', background: 'rgba(0,0,0,0.7)' }}>
-          <div className="modal-dialog modal-dialog-centered modal-lg">
-            <div className="modal-content border-0 shadow-lg" style={{ background: 'var(--midnight-card)', borderRadius: 'var(--radius-xl)' }}>
-              <div className="modal-header border-bottom border-secondary border-opacity-10 py-4 px-4 bg-white bg-opacity-02">
-                <h5 className="modal-title fw-800 text-white d-flex align-items-center">
-                  <Edit className="me-3 text-cyan" size={22} />
-                  Edit Employee: {editingEmployee.name}
-                </h5>
-                <button type="button" className="btn-close btn-close-white" onClick={() => setShowEditModal(false)} disabled={loading}></button>
-              </div>
-              <div className="modal-body p-4">
-                <form onSubmit={handleUpdateEmployee} className="px-2">
-                  <div className="row g-4">
-                    <div className="col-md-6">
-                      <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Full Name</label>
-                      <input id="editName" type="text" required value={editFormData.name} onChange={(e) => setEditFormData(prev => ({...prev, name: e.target.value}))} className="form-control" />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Email Address</label>
-                      <input id="editEmail" type="email" required value={editFormData.email} onChange={(e) => setEditFormData(prev => ({...prev, email: e.target.value}))} className="form-control" />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Role</label>
-                      <select id="editRole" required value={editFormData.role} onChange={(e) => setEditFormData(prev => ({...prev, role: e.target.value as any}))} className="form-select">
-                        <option value="employee">Employee</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </div>
-                    <div className="col-md-6">
-                      <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Department</label>
-                      <select id="editDepartment" value={editFormData.department} onChange={(e) => setEditFormData(prev => ({...prev, department: e.target.value}))} className="form-select">
-                        <option value="">Select Department</option>
-                        {allDepartments.map(dept => <option key={dept} value={dept}>{dept}</option>)}
-                      </select>
-                    </div>
-                    <div className="col-md-6">
-                      <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Position</label>
-                      <input id="editPosition" type="text" value={editFormData.position} onChange={(e) => setEditFormData(prev => ({...prev, position: e.target.value}))} className="form-control" />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Joining Date</label>
-                      <input id="editJoiningDate" type="date" value={editFormData.joining_date} onChange={(e) => setEditFormData(prev => ({...prev, joining_date: e.target.value}))} className="form-control" />
-                    </div>
-                  </div>
-                  <div className="d-flex justify-content-end gap-3 mt-5">
-                    <button type="button" onClick={() => setShowEditModal(false)} className="btn btn-premium-secondary px-4 py-2" disabled={loading}>Discard Changes</button>
-                    <button type="submit" disabled={loading} className="btn btn-premium-primary px-4 py-2">
-                      {loading ? <div className="spinner-border spinner-border-sm me-2" /> : <Save className="me-2" size={16} />} 
-                      Save Changes
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
           </div>
         </div>
       )}

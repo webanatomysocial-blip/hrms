@@ -64,7 +64,9 @@ switch($method) {
 function getEmployees($db) {
     try {
         $query = "SELECT id, name, email, role, department, position, joining_date, created_at, active 
-                  FROM users ORDER BY created_at DESC";
+                  FROM users 
+                  WHERE role != 'admin'
+                  ORDER BY created_at DESC";
         $stmt = $db->prepare($query);
         $stmt->execute();
         
@@ -95,50 +97,59 @@ function getEmployee($db, $id) {
 }
 
 function createEmployee($db, $input) {
-    if (!isset($input['name']) || !isset($input['email'])) {
-        sendResponse(false, 'Name and email are required');
+    if (!isset($input['name']) || empty(trim($input['name']))) {
+        sendResponse(false, 'Full Name is required');
+    }
+    if (!isset($input['email']) || empty(trim($input['email']))) {
+        sendResponse(false, 'Email address is required');
+    }
+    if (!validateEmail($input['email'])) {
+        sendResponse(false, 'Invalid email format');
     }
 
     $name = validateInput($input['name']);
     $email = validateInput($input['email']);
-    $password = password_hash(isset($input['password']) ? $input['password'] : '123456', PASSWORD_DEFAULT);
+    $password = password_hash(isset($input['password']) && !empty($input['password']) ? $input['password'] : '123456', PASSWORD_DEFAULT);
     $role = isset($input['role']) ? validateInput($input['role']) : 'employee';
-    $department = isset($input['department']) ? validateInput($input['department']) : null;
-    $position = isset($input['position']) ? validateInput($input['position']) : null;
-    $joining_date = isset($input['joining_date']) ? $input['joining_date'] : date('Y-m-d');
+    $department = !empty($input['department']) ? validateInput($input['department']) : null;
+    $position = !empty($input['position']) ? validateInput($input['position']) : null;
+    $joining_date = !empty($input['joining_date']) ? $input['joining_date'] : date('Y-m-d');
 
     try {
         // Check if employee already exists
         $checkQuery = "SELECT id FROM users WHERE email = :email";
         $checkStmt = $db->prepare($checkQuery);
-        $checkStmt->bindParam(':email', $email);
+        $checkStmt->bindValue(':email', $email);
         $checkStmt->execute();
 
         if ($checkStmt->fetch()) {
-            sendResponse(false, 'Employee already exists with this email');
+            sendResponse(false, 'An employee with this email already exists');
         }
 
         $query = "INSERT INTO users (name, email, password, role, department, position, joining_date, active) 
                   VALUES (:name, :email, :password, :role, :department, :position, :joining_date, 1)";
         
         $stmt = $db->prepare($query);
-        $stmt->bindParam(':name', $name);
-        $stmt->bindParam(':email', $email);
-        $stmt->bindParam(':password', $password);
-        $stmt->bindParam(':role', $role);
-        $stmt->bindParam(':department', $department);
-        $stmt->bindParam(':position', $position);
-        $stmt->bindParam(':joining_date', $joining_date);
+        $stmt->bindValue(':name', $name);
+        $stmt->bindValue(':email', $email);
+        $stmt->bindValue(':password', $password);
+        $stmt->bindValue(':role', $role);
+        $stmt->bindValue(':department', $department);
+        $stmt->bindValue(':position', $position);
+        $stmt->bindValue(':joining_date', $joining_date);
 
         if ($stmt->execute()) {
             $employeeId = $db->lastInsertId();
-            sendResponse(true, 'Employee created successfully', ['id' => $employeeId]);
+            logError('Employee created successfully', ['id' => $employeeId, 'email' => $email]);
+            sendResponse(true, 'Employee added successfully', ['id' => $employeeId]);
         } else {
-            sendResponse(false, 'Failed to create employee');
+            $errorInfo = $stmt->errorInfo();
+            logError('Failed to execute employee insert', ['error' => $errorInfo]);
+            sendResponse(false, 'Failed to save employee data to database');
         }
     } catch(PDOException $e) {
-        logError('Create employee error', ['error' => $e->getMessage()]);
-        sendResponse(false, 'Failed to create employee');
+        logError('Create employee exception', ['message' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+        sendResponse(false, 'Database error: ' . $e->getMessage());
     }
 }
 

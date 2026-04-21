@@ -72,6 +72,28 @@ const LeaveRequest: React.FC = () => {
     return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   };
 
+  const calculateLeaveAllowance = (joiningDate?: string) => {
+    if (!joiningDate) return { paid: 12, lop: 6 }; // Default to existing employee if no date
+    const join = new Date(joiningDate);
+    const now = new Date();
+    
+    // Calculate full months completed
+    let months = (now.getFullYear() - join.getFullYear()) * 12 + (now.getMonth() - join.getMonth());
+    if (now.getDate() < join.getDate()) months--;
+
+    if (months < 4) return { paid: 0, lop: 0 };
+    if (months === 4) return { paid: 1, lop: 0.5 };
+    if (months === 5) return { paid: 2, lop: 1 }; // Progression based on 'half leaves unabled' logic
+    return { paid: 12, lop: 6 };
+  };
+
+  const allowance = calculateLeaveAllowance(user?.joining_date);
+  const paidTaken = userLeaves.filter(l => l.status === 'approved' && !l.is_unpaid).reduce((sum, l) => sum + l.days, 0);
+  const lopTaken = userLeaves.filter(l => l.status === 'approved' && l.is_unpaid).reduce((sum, l) => sum + l.days, 0);
+  
+  const remainingPaid = Math.max(0, allowance.paid - paidTaken);
+  const remainingLop = Math.max(0, allowance.lop - lopTaken);
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'approved':
@@ -110,6 +132,26 @@ const LeaveRequest: React.FC = () => {
       {/* Leave Statistics */}
       <div className="row mb-5">
         <div className="col-lg-3 col-md-6 mb-4">
+          <div className="premium-stat-card h-100 shadow-glow-indigo">
+            <div className="premium-stat-icon" style={{ background: 'rgba(99,102,241,0.1)', color: 'var(--accent-indigo)' }}>
+              <Calendar size={24} />
+            </div>
+            <div className="premium-stat-number">{remainingPaid} / {allowance.paid}</div>
+            <div className="premium-stat-label">Remaining Paid Leaves</div>
+            <div className="mt-2 text-dimmed small fw-600">{paidTaken} days taken</div>
+          </div>
+        </div>
+        <div className="col-lg-3 col-md-6 mb-4">
+          <div className="premium-stat-card h-100 shadow-glow-cyan">
+            <div className="premium-stat-icon" style={{ background: 'rgba(6,182,212,0.1)', color: 'var(--accent-cyan)' }}>
+              <AlertCircle size={24} />
+            </div>
+            <div className="premium-stat-number">{remainingLop} / {allowance.lop}</div>
+            <div className="premium-stat-label">Remaining LOP Balance</div>
+            <div className="mt-2 text-dimmed small fw-600">{lopTaken} days applied</div>
+          </div>
+        </div>
+        <div className="col-lg-3 col-md-6 mb-4">
           <div className="premium-stat-card h-100">
             <div className="premium-stat-icon" style={{ background: 'rgba(251,191,36,0.1)', color: 'var(--accent-gold)' }}>
               <Clock size={24} />
@@ -123,28 +165,10 @@ const LeaveRequest: React.FC = () => {
             <div className="premium-stat-icon" style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--success)' }}>
               <CheckCircle size={24} />
             </div>
-            <div className="premium-stat-number">{userLeaves.filter(l => l.status === 'approved').length}</div>
-            <div className="premium-stat-label">Approved Leaves</div>
-          </div>
-        </div>
-        <div className="col-lg-3 col-md-6 mb-4">
-          <div className="premium-stat-card h-100">
-            <div className="premium-stat-icon" style={{ background: 'rgba(99,102,241,0.1)', color: 'var(--accent-indigo)' }}>
-              <Calendar size={24} />
-            </div>
             <div className="premium-stat-number">
-              {userLeaves.filter(l => l.status === 'approved').reduce((sum, l) => sum + l.days, 0)}
+              {userLeaves.filter(l => l.status === 'approved').length}
             </div>
-            <div className="premium-stat-label">Total Days Taken</div>
-          </div>
-        </div>
-        <div className="col-lg-3 col-md-6 mb-4">
-          <div className="premium-stat-card h-100">
-            <div className="premium-stat-icon" style={{ background: 'rgba(6,182,212,0.1)', color: 'var(--accent-cyan)' }}>
-              <Calendar size={24} />
-            </div>
-            <div className="premium-stat-number">{userLeaves.length}</div>
-            <div className="premium-stat-label">Total Requests</div>
+            <div className="premium-stat-label">Approved Requests</div>
           </div>
         </div>
       </div>

@@ -560,3 +560,15 @@ h1, h2, h3, h4, h5, h6 {
 .notification-unread:hover {
   background: rgba(6, 182, 212, 0.08) !important;
 }
+
+/* Make calendar icon/indicator white in date inputs */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.5);
+  cursor: pointer;
+}
+
+/* Style for potential Lucide calendar icons next to inputs */
+.text-cyan.lucide-calendar, .text-indigo.lucide-calendar {
+  color: var(--text-primary) !important;
+  opacity: 0.9;
+}

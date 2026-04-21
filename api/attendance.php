@@ -84,8 +84,10 @@ switch ($method) {
 
 function getAllAttendance($db) {
     try {
-        $query = "SELECT * FROM attendance 
-                  ORDER BY date DESC, time DESC 
+        $query = "SELECT a.* FROM attendance a
+                  JOIN users u ON a.employee_id = u.id
+                  WHERE u.role != 'admin'
+                  ORDER BY a.date DESC, a.time DESC 
                   LIMIT 1000";
         $stmt = $db->prepare($query);
         $stmt->execute();
@@ -101,7 +103,9 @@ function getAllAttendanceSummary($db) {
         $startDate = isset($_GET['start_date']) ? $_GET['start_date'] : null;
         $endDate = isset($_GET['end_date']) ? $_GET['end_date'] : null;
         
-        $query = "SELECT * FROM daily_attendance_summary";
+        $query = "SELECT s.* FROM daily_attendance_summary s
+                  JOIN users u ON s.employee_id = u.id
+                  WHERE u.role != 'admin'";
         $params = [];
         
         if ($startDate && $endDate) {

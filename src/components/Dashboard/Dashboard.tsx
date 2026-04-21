@@ -364,22 +364,46 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
                 <div className="mt-3 text-cyan fw-600 small">{isClockedIn ? liveTimer : `${todayAttendanceRecord?.total_working_hours || 0} hours`} logged</div>
               </div>
             </div>
-            <div className="col-lg-4 col-md-6 mb-4">
-              <div className="premium-stat-card h-100">
-                <div className="premium-stat-icon" style={{ background: 'rgba(6, 182, 212, 0.1)', color: 'var(--accent-cyan)' }}><Calendar size={24} /></div>
-                <div className="premium-stat-number">{leaveRequests.filter(l => l.employee_id === user?.id && l.status === 'approved').length}</div>
-                <div className="premium-stat-label">Leaves Approved</div>
-                <div className="mt-3 text-dimmed small fw-600">{leaveRequests.filter(l => l.employee_id === user?.id && l.status === 'pending').length} requests in queue</div>
-              </div>
-            </div>
-            <div className="col-lg-4 col-md-6 mb-4">
-              <div className="premium-stat-card h-100">
-                <div className="premium-stat-icon" style={{ background: 'rgba(245, 158, 11, 0.1)', color: 'var(--warning)' }}><AlertCircle size={24} /></div>
-                <div className="premium-stat-number">{attendance.filter(a => a.employee_id === user?.id && a.status === 'late').length}</div>
-                <div className="premium-stat-label">Total Late Days</div>
-                <div className="mt-3 text-dimmed small fw-600">Performance indicator</div>
-              </div>
-            </div>
+            {(() => {
+              const calculateLeaveAllowance = (joiningDate?: string) => {
+                if (!joiningDate) return { paid: 12, lop: 6 };
+                const join = new Date(joiningDate);
+                const now = new Date();
+                let months = (now.getFullYear() - join.getFullYear()) * 12 + (now.getMonth() - join.getMonth());
+                if (now.getDate() < join.getDate()) months--;
+                if (months < 4) return { paid: 0, lop: 0 };
+                if (months === 4) return { paid: 1, lop: 0.5 };
+                if (months === 5) return { paid: 2, lop: 1 };
+                return { paid: 12, lop: 6 };
+              };
+              const allowance = calculateLeaveAllowance(user?.joining_date);
+              const userApprovedLeaves = leaveRequests.filter(l => l.employee_id === user?.id && l.status === 'approved');
+              const paidTaken = userApprovedLeaves.filter(l => !l.is_unpaid).reduce((sum, l) => sum + l.days, 0);
+              const lopTaken = userApprovedLeaves.filter(l => l.is_unpaid).reduce((sum, l) => sum + l.days, 0);
+              const remainingPaid = Math.max(0, allowance.paid - paidTaken);
+              const remainingLop = Math.max(0, allowance.lop - lopTaken);
+
+              return (
+                <>
+                  <div className="col-lg-4 col-md-6 mb-4">
+                    <div className="premium-stat-card h-100 shadow-glow-indigo">
+                      <div className="premium-stat-icon" style={{ background: 'rgba(99, 102, 241, 0.1)', color: 'var(--accent-indigo)' }}><Calendar size={24} /></div>
+                      <div className="premium-stat-number">{remainingPaid} / {allowance.paid}</div>
+                      <div className="premium-stat-label">Remaining Paid Leaves</div>
+                      <div className="mt-3 text-dimmed small fw-600">{paidTaken} days used</div>
+                    </div>
+                  </div>
+                  <div className="col-lg-4 col-md-6 mb-4">
+                    <div className="premium-stat-card h-100 shadow-glow-cyan">
+                      <div className="premium-stat-icon" style={{ background: 'rgba(6, 182, 212, 0.1)', color: 'var(--accent-cyan)' }}><AlertCircle size={24} /></div>
+                      <div className="premium-stat-number">{remainingLop} / {allowance.lop}</div>
+                      <div className="premium-stat-label">LOP Balance</div>
+                      <div className="mt-3 text-dimmed small fw-600">{lopTaken} days applied</div>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </>
         )}
       </div>
