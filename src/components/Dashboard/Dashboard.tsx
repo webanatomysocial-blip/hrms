@@ -169,7 +169,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
     }
   };
 
-  const totalEmployees = employees.length;
+  const empList = employees.filter(e => e.role !== 'admin');
+  const totalEmployees = empList.length;
   const todayAttendance = attendance.filter((a: DailyAttendanceSummary) => a.date === today);
   const presentToday = todayAttendance.filter((a: DailyAttendanceSummary) => a.status === 'present' || a.status === 'late' || a.status === 'half_day').length;
   const lateToday = todayAttendance.filter((a: DailyAttendanceSummary) => a.status === 'late').length;
@@ -178,6 +179,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
   // Safe comparison for leave dates
   const approvedLeavesToday = leaveRequests.filter((l: any) => {
     if (l.status !== 'approved') return false;
+    // Also exclude admins from leave count if necessary, but assuming they don't apply for leaves much
     const start = safeDate(l.start_date).getTime();
     const end = safeDate(l.end_date).getTime();
     const current = safeDate(today).getTime();
@@ -186,9 +188,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
 
   const attendanceRate = totalEmployees > 0 ? Math.round((presentToday / totalEmployees) * 100) : 0;
 
+  const leavesTodayList = leaveRequests.filter((l: any) => {
+    if (l.status !== 'approved') return false;
+    const start = safeDate(l.start_date).getTime();
+    const end = safeDate(l.end_date).getTime();
+    const current = safeDate(today).getTime();
+    return current >= start && current <= end;
+  }).slice(0, 10);
+  
   const recentAttendance = attendance.filter((a: DailyAttendanceSummary) => safeDate(a.date).getTime() >= safeDate(today).getTime() - (7 * 24 * 60 * 60 * 1000))
     .sort((a: DailyAttendanceSummary, b: DailyAttendanceSummary) => safeDate(b.date).getTime() - safeDate(a.date).getTime()).slice(0, 5);
-  const recentLeaves = leaveRequests.sort((a: any, b: any) => safeDate(b.created_at).getTime() - safeDate(a.created_at).getTime()).slice(0, 5);
+    
   const upcomingHolidays = holidays.filter((h: any) => safeDate(h.date).getTime() > safeDate(today).getTime()).slice(0, 4);
 
   if (loading) {
@@ -513,9 +523,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
                 <div className="col-md-6">
                   <div className="p-4">
                     <h6 className="text-secondary small fw-700 text-uppercase mb-4 d-flex align-items-center">
-                      <span className="p-1 rounded bg-info bg-opacity-10 me-2"></span> Recent Leave Requests
+                      <span className="p-1 rounded bg-info bg-opacity-10 me-2"></span> On Leave Today
                     </h6>
-                    {recentLeaves.length > 0 ? recentLeaves.map((leave, index) => (
+                    {leavesTodayList.length > 0 ? leavesTodayList.map((leave, index) => (
                       <div key={index} className="d-flex align-items-center mb-4 last-mb-0">
                         <div className="rounded-circle d-flex align-items-center justify-content-center me-3 fw-800"
                           style={{ width: '42px', height: '42px', background: 'var(--midnight-elevated)', border: '1px solid var(--midnight-border-bright)', color: 'var(--accent-indigo)', fontSize: '0.9rem' }}>
@@ -535,7 +545,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
                     )) : (
                       <div className="text-center py-5">
                         <Calendar size={32} className="text-dimmed opacity-20 mb-3" />
-                        <p className="text-dimmed small fw-600">No recent requests</p>
+                        <p className="text-dimmed small fw-600">No one on leave today</p>
                       </div>
                     )}
                   </div>

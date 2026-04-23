@@ -188,7 +188,7 @@ const Attendance: React.FC = () => {
 
     dates.forEach(dateStr => {
       if (isAdmin) {
-        employees.forEach((emp: Employee) => {
+        employees.filter(e => e.role !== 'admin').forEach((emp: Employee) => {
           if (employeeFilter && emp.id !== employeeFilter) return;
 
           const record = globalAttendance.find((r: DailyAttendanceSummary) => Number(r.employee_id) === Number(emp.id) && r.date === dateStr);
@@ -336,7 +336,7 @@ const Attendance: React.FC = () => {
                     onChange={(e) => setEmployeeFilter(e.target.value ? parseInt(e.target.value) : null)}
                   >
                     <option value="" className="bg-dark">All Employees</option>
-                    {employees.map((emp) => (
+                    {employees.filter(e => e.role !== 'admin').map((emp) => (
                       <option key={emp.id} value={emp.id} className="bg-dark">{emp.name}</option>
                     ))}
                   </select>

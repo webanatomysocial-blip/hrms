@@ -16,7 +16,7 @@ class ApiService {
     options: RequestInit = {},
     timeout: number = this.DEFAULT_TIMEOUT
   ): Promise<ApiResponse<T>> {
-    const url = `${API_BASE_URL}${endpoint}`;
+    const url = `${API_BASE_URL}${endpoint}${endpoint.includes('?') ? '&' : '?'}_t=${Date.now()}`;
 
     const defaultHeaders: HeadersInit = {
       'Content-Type': 'application/json',

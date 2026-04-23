@@ -36,22 +36,19 @@ switch ($method) {
                 getEmployeeAttendance($db, $requestedEmployeeId);
             }
         } else {
-            // No employee_id provided
-            if ($userRole === 'admin') {
+            // If fetching global data
+            if (isset($_GET['summary'])) {
+                // ✅ ALLOW: Everyone can see the global summary for the dashboard
+                getAllAttendanceSummary($db);
+            } elseif ($userRole === 'admin') {
                 if (isset($_GET['sync_summaries'])) {
                     syncAllDailySummaries($db);
-                } elseif (isset($_GET['summary'])) {
-                    getAllAttendanceSummary($db);
                 } else {
                     getAllAttendance($db);
                 }
             } else {
-                // Employees see ONLY their own data
-                if (isset($_GET['summary'])) {
-                    getEmployeeAttendanceSummary($db, (int)$userId);
-                } else {
-                    getEmployeeAttendance($db, (int)$userId);
-                }
+                // Employees see ONLY their own data for detailed logs
+                getEmployeeAttendance($db, (int)$userId);
             }
         }
         break;
@@ -105,8 +102,8 @@ function getAllAttendanceSummary($db) {
         $endDate = isset($_GET['end_date']) ? $_GET['end_date'] : null;
         
         $query = "SELECT s.*, u.role FROM daily_attendance_summary s
-                  LEFT JOIN users u ON s.employee_id = u.id
-                  WHERE 1=1";
+                  JOIN users u ON s.employee_id = u.id
+                  WHERE u.role != 'admin'";
         $params = [];
         
         if ($startDate && $endDate) {
