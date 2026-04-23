@@ -34,8 +34,9 @@ const Attendance: React.FC = () => {
   const [presenceFilter, setPresenceFilter] = useState("");
   const [employeeFilter, setEmployeeFilter] = useState<number | null>(null);
 
-  const today = new Date().toISOString().split('T')[0];
-  const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('en-CA', {timeZone: 'Asia/Kolkata'});
+  const now = new Date();
+  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-CA', {timeZone: 'Asia/Kolkata'});
   
   const [startDate, setStartDate] = useState(firstDayOfMonth);
   const [endDate, setEndDate] = useState(today);
@@ -49,7 +50,7 @@ const Attendance: React.FC = () => {
 
   const todayRecord =
     globalAttendance.find(
-      (record: DailyAttendanceSummary) => record.employee_id === user?.id && record.date === today,
+      (record: DailyAttendanceSummary) => Number(record.employee_id) === Number(user?.id) && record.date === today,
     ) || null;
 
   const todayEntries = userEntries.filter(e => e.date === today);
@@ -190,8 +191,11 @@ const Attendance: React.FC = () => {
         employees.forEach((emp: Employee) => {
           if (employeeFilter && emp.id !== employeeFilter) return;
 
-          const record = globalAttendance.find((r: DailyAttendanceSummary) => r.employee_id === emp.id && r.date === dateStr);
-          const matchesStatus = !presenceFilter || (record ? record.status === presenceFilter : (presenceFilter === 'absent'));
+          const record = globalAttendance.find((r: DailyAttendanceSummary) => Number(r.employee_id) === Number(emp.id) && r.date === dateStr);
+          const matchesStatus = !presenceFilter || 
+            (presenceFilter === 'present' 
+              ? (record && (record.status === 'present' || record.status === 'late' || record.status === 'half_day'))
+              : (record ? record.status === presenceFilter : (presenceFilter === 'absent')));
 
           if (matchesStatus) {
             if (record) {

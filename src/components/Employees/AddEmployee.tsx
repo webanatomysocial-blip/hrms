@@ -78,7 +78,8 @@ const AddEmployees: React.FC = () => {
     'SEO',
     'SMM',
     'SuccessWikis',
-    'Performance Marketer'
+    'Performance Marketer',
+    'Sales'
   ];
 
   return (

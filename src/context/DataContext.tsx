@@ -119,10 +119,12 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         const entries = response.data;
         setUserEntries(entries);
         
-        // Derive clocked in status from THE absolute latest entry
-        if (entries.length > 0) {
+        // Derive clocked in status from THE absolute latest entry, BUT only if it's from today
+        const today = new Date().toLocaleDateString('en-CA', {timeZone: 'Asia/Kolkata'});
+        if (entries.length > 0 && entries[0].date === today) {
           setIsClockedIn(entries[0].entry_type === 'in');
         } else {
+          // If no entry today, or last entry today was 'out', or last entry was from a previous day
           setIsClockedIn(false);
         }
       }

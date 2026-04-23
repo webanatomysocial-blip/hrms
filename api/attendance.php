@@ -38,8 +38,9 @@ switch ($method) {
         } else {
             // No employee_id provided
             if ($userRole === 'admin') {
-                // Admins see everything
-                if (isset($_GET['summary'])) {
+                if (isset($_GET['sync_summaries'])) {
+                    syncAllDailySummaries($db);
+                } elseif (isset($_GET['summary'])) {
                     getAllAttendanceSummary($db);
                 } else {
                     getAllAttendance($db);
@@ -103,20 +104,20 @@ function getAllAttendanceSummary($db) {
         $startDate = isset($_GET['start_date']) ? $_GET['start_date'] : null;
         $endDate = isset($_GET['end_date']) ? $_GET['end_date'] : null;
         
-        $query = "SELECT s.* FROM daily_attendance_summary s
-                  JOIN users u ON s.employee_id = u.id
-                  WHERE u.role != 'admin'";
+        $query = "SELECT s.*, u.role FROM daily_attendance_summary s
+                  LEFT JOIN users u ON s.employee_id = u.id
+                  WHERE 1=1";
         $params = [];
         
         if ($startDate && $endDate) {
-            $query .= " WHERE date BETWEEN :start AND :end";
+            $query .= " AND date BETWEEN :start AND :end";
             $params[':start'] = $startDate;
             $params[':end'] = $endDate;
         } elseif ($startDate) {
-            $query .= " WHERE date >= :start";
+            $query .= " AND date >= :start";
             $params[':start'] = $startDate;
         } elseif ($endDate) {
-            $query .= " WHERE date <= :end";
+            $query .= " AND date <= :end";
             $params[':end'] = $endDate;
         }
         
@@ -138,7 +139,7 @@ function getEmployeeAttendance($db, $employeeId) {
     try {
         $query = "SELECT * FROM attendance 
                   WHERE employee_id = :eid 
-                  ORDER BY date DESC, time DESC 
+                  ORDER BY date DESC, time DESC, id DESC 
                   LIMIT 500";
         $stmt = $db->prepare($query);
         $stmt->bindParam(':eid', $employeeId, PDO::PARAM_INT);
@@ -299,6 +300,10 @@ function clockOut($db, $input) {
 
     $today = date('Y-m-d');
     $currentTime = date('H:i:s');
+    // HARD CAP: If clocking out after 9 PM, record it as exactly 9 PM
+    if ($currentTime > '21:00:00') {
+        $currentTime = '21:00:00';
+    }
     $ipAddress = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
     try {
@@ -418,15 +423,44 @@ function updateDailySummary($db, $employeeId, $employeeName, $date) {
                 $lastClockOut = null; 
             } elseif ($entry['entry_type'] === 'out' && $currentClockIn !== null) {
                 $clockInTime = strtotime($date . ' ' . $currentClockIn);
-                $clockOutTime = strtotime($date . ' ' . $entry['time']);
+                
+                // CAP at 9:00 PM
+                $actualClockOutTime = $entry['time'];
+                if ($actualClockOutTime > '21:00:00') {
+                    $actualClockOutTime = '21:00:00';
+                }
+                
+                $clockOutTime = strtotime($date . ' ' . $actualClockOutTime);
                 $sessionSeconds = $clockOutTime - $clockInTime;
                 
                 if ($sessionSeconds > 0) {
                     $totalWorkingSeconds += $sessionSeconds;
                 }
                 
-                $lastClockOut = $entry['time'];
+                $lastClockOut = $actualClockOutTime;
                 $currentClockIn = null;
+            }
+        }
+
+        // AUTO CLOCK-OUT LOGIC:
+        // If still clocked in and (it's a past date OR it's today after 9:00 PM)
+        if ($currentClockIn !== null) {
+            $today = date('Y-m-d');
+            $currentTime = date('H:i:s');
+            $ninePM = '21:00:00';
+            
+            if ($date < $today || ($date === $today && $currentTime >= $ninePM)) {
+                $clockInTime = strtotime($date . ' ' . $currentClockIn);
+                $clockOutTime = strtotime($date . ' ' . $ninePM);
+                $sessionSeconds = $clockOutTime - $clockInTime;
+                
+                if ($sessionSeconds > 0) {
+                    $totalWorkingSeconds += $sessionSeconds;
+                }
+                $lastClockOut = $ninePM;
+                
+                // Optional: We could actually INSERT an 'out' record here if we wanted it to be persistent
+                // but updating the summary is often enough for reporting.
             }
         }
 
@@ -437,12 +471,18 @@ function updateDailySummary($db, $employeeId, $employeeName, $date) {
         if ($firstClockIn && strtotime($firstClockIn) > strtotime('09:30:00')) {
             $status = 'late';
         }
-        if ($totalWorkingHours > 0 && $totalWorkingHours < 4) {
+        
+        // If they have worked less than 4 hours but have clocked out at least once today
+        if ($totalWorkingHours > 0 && $totalWorkingHours < 4 && $lastClockOut !== null) {
             $status = 'half_day';
         }
-        if ($totalWorkingHours == 0 && $lastClockOut === null) {
-            $status = 'present'; // Still working
+        
+        // If they are currently clocked in (lastClockOut is null) 
+        // we keep the status as 'present' or 'late' as determined above
+        if ($lastClockOut === null && $firstClockIn !== null) {
+            // No changes needed, status is already 'present' or 'late'
         }
+
 
         $dbType = getenv('DB_TYPE') ?: 'sqlite';
         if ($dbType === 'mysql') {
@@ -451,10 +491,10 @@ function updateDailySummary($db, $employeeId, $employeeName, $date) {
                 (employee_id, employee_name, date, total_working_hours, total_break_time, status, first_clock_in, last_clock_out, created_at, updated_at) 
                 VALUES (:eid, :ename, :d, :twh, 0, :st, :fci, :lco, NOW(), NOW())
                 ON DUPLICATE KEY UPDATE 
-                total_working_hours = :twh,
-                status = :st,
-                first_clock_in = :fci,
-                last_clock_out = :lco,
+                total_working_hours = VALUES(total_working_hours),
+                status = VALUES(status),
+                first_clock_in = VALUES(first_clock_in),
+                last_clock_out = VALUES(last_clock_out),
                 updated_at = NOW()
             ");
         } else {
@@ -463,10 +503,10 @@ function updateDailySummary($db, $employeeId, $employeeName, $date) {
                 (employee_id, employee_name, date, total_working_hours, total_break_time, status, first_clock_in, last_clock_out, created_at, updated_at) 
                 VALUES (:eid, :ename, :d, :twh, 0, :st, :fci, :lco, DATETIME('now', 'localtime'), DATETIME('now', 'localtime'))
                 ON CONFLICT(employee_id, date) DO UPDATE SET 
-                total_working_hours = :twh,
-                status = :st,
-                first_clock_in = :fci,
-                last_clock_out = :lco,
+                total_working_hours = excluded.total_working_hours,
+                status = excluded.status,
+                first_clock_in = excluded.first_clock_in,
+                last_clock_out = excluded.last_clock_out,
                 updated_at = DATETIME('now', 'localtime')
             ");
         }
@@ -548,6 +588,28 @@ function createAttendanceEntry($db, $input) {
     } catch (PDOException $e) {
         logError('Create attendance entry error', ['error' => $e->getMessage(), 'employee_id' => $employeeId]);
         sendResponse(false, 'Failed to create attendance entry');
+    }
+}
+
+function syncAllDailySummaries($db) {
+    try {
+        $today = date('Y-m-d');
+        // Get all unique employees who clocked in today
+        $stmt = $db->prepare("SELECT DISTINCT employee_id, employee_name FROM attendance WHERE date = :today");
+        $stmt->bindParam(':today', $today);
+        $stmt->execute();
+        $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $synced = 0;
+        foreach ($employees as $emp) {
+            updateDailySummary($db, $emp['employee_id'], $emp['employee_name'], $today);
+            $synced++;
+        }
+        
+        sendResponse(true, "Successfully synced summary for $synced employees today.");
+    } catch (PDOException $e) {
+        logError('Sync daily summaries error', ['error' => $e->getMessage()]);
+        sendResponse(false, 'Failed to sync daily summaries');
     }
 }
 ?>

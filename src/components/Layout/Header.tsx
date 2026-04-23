@@ -108,7 +108,7 @@ const Header: React.FC<HeaderProps> = ({ onSettingsClick, onMobileMenuClick }) =
           </button>
           <div>
             <h4 className="mb-0 fw-800 text-white letter-spacing-tight">
-              Hello, {user?.name.split(' ')[0]} <span className="ms-1">✨</span>
+              Hello, {user?.name} <span className="ms-1">✨</span>
             </h4>
             <p className="text-secondary small mb-0 fw-500">
               {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric' })}
@@ -164,7 +164,7 @@ const Header: React.FC<HeaderProps> = ({ onSettingsClick, onMobileMenuClick }) =
             </ul>
           </div>
 
-          <div className="vr mx-2 bg-secondary opacity-10" style={{ height: '24px' }}></div>
+          <div className="vr mx-2 bg-secondary opacity-10" style={{ height: '54px' }}></div>
 
           {/* User Profile Summary */}
           <div className="d-flex align-items-center gap-2 ps-2">

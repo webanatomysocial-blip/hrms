@@ -52,11 +52,11 @@ class Database {
     public function getConnection() {
         $this->conn = null;
         
-        $dbType = getenv('DB_TYPE') ?: 'sqlite';
+        $dbType = getenv('DB_TYPE') ?: 'mysql'; // Force MySQL by default for live server
         $dbHost = getenv('DB_HOST') ?: 'localhost';
-        $dbName = getenv('DB_NAME') ?: 'hrms';
-        $dbUser = getenv('DB_USER') ?: 'root';
-        $dbPass = getenv('DB_PASS') ?: '';
+        $dbName = getenv('DB_NAME') ?: 'mosol9srujanwhma_hrms';
+        $dbUser = getenv('DB_USER') ?: 'mosol9srujanwhma_hrmsuser';
+        $dbPass = getenv('DB_PASS') ?: '$~;{~3wHb@kHe-c^';
         $dbFile = __DIR__ . '/database.db';
 
         try {
@@ -116,7 +116,7 @@ function validateInput($data) {
     if ($data === null) {
         return null;
     }
-    return htmlspecialchars(strip_tags(trim($data)), ENT_QUOTES, 'UTF-8');
+    return strip_tags(trim($data));
 }
 
 /**

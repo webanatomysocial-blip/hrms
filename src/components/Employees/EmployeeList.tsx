@@ -26,6 +26,7 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
     department: '',
     position: '',
     joining_date: '',
+    password: '',
   });
 
   if (!isAdmin) {
@@ -50,6 +51,7 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
       department: employee.department || '',
       position: employee.position || '',
       joining_date: employee.joining_date || '',
+      password: '',
     });
     setShowEditModal(true);
   };
@@ -137,7 +139,8 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
     'SEO',
     'SMM',
     'SuccessWikis',
-    'Performance Marketer'
+    'Performance Marketer',
+    'Sales'
   ];
 
   return (
@@ -394,6 +397,10 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
                                   <div className="col-md-4">
                                     <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Joining Date</label>
                                     <input id="inlineEditJoiningDate" type="date" value={editFormData.joining_date} onChange={(e) => setEditFormData(prev => ({...prev, joining_date: e.target.value}))} className="form-control bg-dark border-secondary border-opacity-20" />
+                                  </div>
+                                  <div className="col-md-4">
+                                    <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Change Password</label>
+                                    <input id="inlineEditPassword" type="text" placeholder="Leave blank to keep same" value={editFormData.password} onChange={(e) => setEditFormData(prev => ({...prev, password: e.target.value}))} className="form-control bg-dark border-secondary border-opacity-20" />
                                   </div>
                                   <div className="col-12 d-flex justify-content-end gap-2 mt-2">
                                     <button type="button" onClick={() => { setShowEditModal(false); setEditingEmployee(null); }} className="btn btn-sm btn-premium-secondary px-3" disabled={loading}>Cancel</button>

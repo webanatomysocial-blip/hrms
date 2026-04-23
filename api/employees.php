@@ -65,7 +65,6 @@ function getEmployees($db) {
     try {
         $query = "SELECT id, name, email, role, department, position, joining_date, created_at, active 
                   FROM users 
-                  WHERE role != 'admin'
                   ORDER BY created_at DESC";
         $stmt = $db->prepare($query);
         $stmt->execute();

@@ -33,9 +33,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
   const [clockLoading, setClockLoading] = useState(false);
   const [clockError, setClockError] = useState<string>('');
 
-  const today = new Date().getFullYear() + '-' + 
-                String(new Date().getMonth() + 1).padStart(2, '0') + '-' + 
-                String(new Date().getDate()).padStart(2, '0');
+  const today = new Date().toLocaleDateString('en-CA', {timeZone: 'Asia/Kolkata'});
   const currentTime = new Date().toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' });
 
   const [liveTimer, setLiveTimer] = useState<string>('00:00:00');
@@ -77,7 +75,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
 
   const checkTodayAttendance = () => {
     if (!user?.id) return;
-    const record = attendance.find(a => a.employee_id === user.id && a.date === today);
+    const record = attendance.find(a => Number(a.employee_id) === Number(user.id) && a.date === today);
     setTodayAttendanceRecord(record || null);
   };
 
@@ -213,7 +211,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
           <div className="d-flex justify-content-between align-items-end mb-2">
             <div>
               <h1 className="display-5 fw-800 text-white mb-2">
-                Good {new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 17 ? 'Afternoon' : 'Evening'}, {user?.name.split(' ')[0]}!
+                Good {new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 17 ? 'Afternoon' : 'Evening'}, {user?.name}!
               </h1>
               <p className="text-secondary fw-500 mb-0 d-flex align-items-center">
                 <Calendar size={16} className="me-2 text-cyan" />
@@ -377,7 +375,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
                 return { paid: 12, lop: 6 };
               };
               const allowance = calculateLeaveAllowance(user?.joining_date);
-              const userApprovedLeaves = leaveRequests.filter(l => l.employee_id === user?.id && l.status === 'approved');
+              const userApprovedLeaves = leaveRequests.filter(l => Number(l.employee_id) === Number(user?.id) && l.status === 'approved');
               const paidTaken = userApprovedLeaves.filter(l => !l.is_unpaid).reduce((sum, l) => sum + l.days, 0);
               const lopTaken = userApprovedLeaves.filter(l => l.is_unpaid).reduce((sum, l) => sum + l.days, 0);
               const remainingPaid = Math.max(0, allowance.paid - paidTaken);
