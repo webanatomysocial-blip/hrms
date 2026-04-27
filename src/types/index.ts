@@ -2,10 +2,13 @@ export interface User {
   id: number;
   name: string;
   email: string;
-  role: 'admin' | 'employee';
+  role: 'admin' | 'manager' | 'employee';
+  permissions?: string[];
   department?: string;
   position?: string;
   joining_date?: string;
+  manager_id?: number;
+  manager_name?: string;
   created_at?: string;
 }
 
@@ -13,10 +16,13 @@ export interface Employee {
   id: number;
   name: string;
   email: string;
-  role: 'admin' | 'employee';
+  role: 'admin' | 'manager' | 'employee';
+  permissions?: string[];
   department?: string;
   position?: string;
   joining_date?: string;
+  manager_id?: number;
+  manager_name?: string;
   created_at?: string;
 }
 
@@ -51,16 +57,21 @@ export interface LeaveRequest {
   id: number;
   employee_id: number;
   employee_name: string;
+  employee_role?: string;
   type: 'sick' | 'vacation' | 'personal' | 'maternity' | 'paternity';
   start_date: string;
   end_date: string;
   days: number;
   reason: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'manager_approved' | 'approved' | 'rejected';
+  status_detail?: string;
   is_unpaid: boolean;
   approved_by?: number;
   approved_by_name?: string;
   approved_at?: string;
+  manager_approved_by?: number;
+  manager_approved_by_name?: string;
+  manager_approved_at?: string;
   created_at?: string;
   updated_at?: string;
 }

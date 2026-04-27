@@ -52,7 +52,7 @@ function login($db, $input) {
     }
 
     try {
-        $query = "SELECT id, name, email, password, role, department, position, joining_date, created_at 
+        $query = "SELECT id, name, email, password, role, permissions, department, position, joining_date, created_at 
                   FROM users 
                   WHERE email = :email AND active = 1";
         $stmt = $db->prepare($query);
@@ -73,6 +73,13 @@ function login($db, $input) {
                 // Log successful login
                 logError('User logged in successfully', ['user_id' => $user['id'], 'email' => $email]);
                 
+                // Parse permissions if present
+                if (isset($user['permissions']) && $user['permissions']) {
+                    $user['permissions'] = json_decode($user['permissions'], true) ?: [];
+                } else {
+                    $user['permissions'] = [];
+                }
+
                 sendResponse(true, 'Login successful', [
                     'user' => $user,
                     'token' => $token
@@ -120,9 +127,11 @@ function register($db, $input) {
     }
 
     // Validate role
-    if (!in_array($role, ['admin', 'employee'])) {
-        sendResponse(false, 'Invalid role. Must be admin or employee');
+    if (!in_array($role, ['admin', 'manager', 'employee'])) {
+        sendResponse(false, 'Invalid role. Must be admin, manager or employee');
     }
+
+    $permissions = isset($input['permissions']) ? json_encode($input['permissions']) : null;
 
     try {
         // Check if user already exists
@@ -135,14 +144,15 @@ function register($db, $input) {
             sendResponse(false, 'User already exists with this email');
         }
 
-        $query = "INSERT INTO users (name, email, password, role, department, position, joining_date, active) 
-                  VALUES (:name, :email, :password, :role, :department, :position, :joining_date, 1)";
+        $query = "INSERT INTO users (name, email, password, role, permissions, department, position, joining_date, active) 
+                  VALUES (:name, :email, :password, :role, :permissions, :department, :position, :joining_date, 1)";
         
         $stmt = $db->prepare($query);
         $stmt->bindParam(':name', $name);
         $stmt->bindParam(':email', $email);
         $stmt->bindParam(':password', $password);
         $stmt->bindParam(':role', $role);
+        $stmt->bindParam(':permissions', $permissions);
         $stmt->bindParam(':department', $department);
         $stmt->bindParam(':position', $position);
         $stmt->bindParam(':joining_date', $joining_date);
@@ -172,7 +182,7 @@ function verifyTokenEndpoint($db) {
     }
     
     try {
-        $query = "SELECT id, name, email, role, department, position, joining_date, created_at 
+        $query = "SELECT id, name, email, role, permissions, department, position, joining_date, created_at 
                   FROM users 
                   WHERE id = :id AND active = 1";
         $stmt = $db->prepare($query);
@@ -181,6 +191,12 @@ function verifyTokenEndpoint($db) {
 
         $user = $stmt->fetch();
         if ($user) {
+            // Parse permissions
+            if (isset($user['permissions']) && $user['permissions']) {
+                $user['permissions'] = json_decode($user['permissions'], true) ?: [];
+            } else {
+                $user['permissions'] = [];
+            }
             sendResponse(true, 'Token valid', ['user' => $user]);
         } else {
             sendResponse(false, 'User not found or inactive');
@@ -235,7 +251,7 @@ function changePassword($db, $input) {
         $newPasswordHash = password_hash($newPassword, PASSWORD_DEFAULT);
         
         // Update password
-        $now = (getenv('DB_TYPE') === 'mysql') ? "NOW()" : "DATETIME('now', 'localtime')";
+        $now = (DB_TYPE === 'mysql') ? "NOW()" : "DATETIME('now', 'localtime')";
         $updateQuery = "UPDATE users SET password = :password, updated_at = $now WHERE id = :id";
         $updateStmt = $db->prepare($updateQuery);
         $updateStmt->bindParam(':password', $newPasswordHash);

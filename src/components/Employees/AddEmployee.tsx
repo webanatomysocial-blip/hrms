@@ -5,7 +5,7 @@ import { api } from '../../lib/api';
 import { UserPlus, User, Mail, Calendar, Shield } from 'lucide-react';
 
 const AddEmployees: React.FC = () => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, hasPermission } = useAuth();
   const { refreshEmployees } = useData();
   const [loading, setLoading] = useState(false);
 
@@ -13,13 +13,15 @@ const AddEmployees: React.FC = () => {
     name: '',
     email: '',
     password: '123456',
-    role: 'employee' as 'admin' | 'employee',
+    role: 'employee' as 'admin' | 'manager' | 'employee',
+    permissions: [] as string[],
     department: '',
     position: '',
     joining_date: new Date().toISOString().split('T')[0],
+    manager_id: '',
   });
 
-  if (!isAdmin) {
+  if (!isAdmin && !hasPermission('manage_employees')) {
     return (
       <div className="container-fluid">
         <div className="row justify-content-center">
@@ -37,16 +39,21 @@ const AddEmployees: React.FC = () => {
     setLoading(true);
 
     try {
-      const response = await api.createEmployee(formData);
+      const response = await api.createEmployee({
+        ...formData,
+        manager_id: formData.manager_id ? parseInt(formData.manager_id) : undefined
+      });
       if (response.success) {
         setFormData({
           name: '',
           email: '',
           password: '123456',
           role: 'employee',
+          permissions: [],
           department: '',
           position: '',
           joining_date: new Date().toISOString().split('T')[0],
+          manager_id: '',
         });
 
         await refreshEmployees();
@@ -175,8 +182,30 @@ const AddEmployees: React.FC = () => {
 
                   <div className="col-lg-6">
                     <h6 className="text-secondary small fw-700 text-uppercase mb-4 d-flex align-items-center">
-                      <span className="p-1 rounded bg-indigo bg-opacity-10 me-2"></span> Role & Department
+                      <span className="p-1 rounded bg-indigo bg-opacity-10 me-2"></span> Role & Assignment
                     </h6>
+
+                    <div className="mb-4">
+                      <label className="text-secondary small fw-700 text-uppercase mb-2 d-block" htmlFor="reportingManager">
+                        Reporting Manager
+                      </label>
+                      <select
+                        id="reportingManager"
+                        name="manager_id"
+                        value={formData.manager_id}
+                        onChange={(e) => setFormData(prev => ({ ...prev, manager_id: e.target.value }))}
+                        className="form-select bg-opacity-05 border-secondary border-opacity-10 py-3 text-white"
+                        style={{ borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)' }}
+                      >
+                        <option value="" className="bg-dark">Select Manager (Optional)</option>
+                        {useData().employees
+                          .filter(e => e.role === 'admin' || e.role === 'manager')
+                          .map(mgr => (
+                            <option key={mgr.id} value={mgr.id} className="bg-dark">{mgr.name} ({mgr.role})</option>
+                          ))
+                        }
+                      </select>
+                    </div>
 
                     <div className="mb-4">
                       <label className="text-secondary small fw-700 text-uppercase mb-2 d-block" htmlFor="employeeRole">
@@ -187,14 +216,49 @@ const AddEmployees: React.FC = () => {
                         name="role"
                         required
                         value={formData.role}
-                        onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value as 'admin'|'employee' }))}
+                        onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value as 'admin'|'manager'|'employee' }))}
                         className="form-select bg-opacity-05 border-secondary border-opacity-10 py-3 text-white"
                         style={{ borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)' }}
                       >
                         <option value="employee" className="bg-dark">Standard Employee</option>
+                        <option value="manager" className="bg-dark">Manager</option>
                         <option value="admin" className="bg-dark">Admin</option>
                       </select>
                     </div>
+
+                    {formData.role === 'manager' && (
+                      <div className="mb-4 fade-in">
+                        <label className="text-secondary small fw-700 text-uppercase mb-3 d-block">
+                          Manager Permissions
+                        </label>
+                        <div className="p-3 rounded-3 border border-secondary border-opacity-10" style={{ background: 'rgba(255,255,255,0.01)' }}>
+                          {[
+                            { id: 'manage_leaves', label: 'Manage Leaves (Approvals)' },
+                            { id: 'manage_attendance', label: 'Manage Attendance logs' },
+                            { id: 'manage_employees', label: 'Manage & Edit Employees' },
+                            { id: 'manage_holidays', label: 'Manage Holidays & Calendar' }
+                          ].map(perm => (
+                            <div key={perm.id} className="form-check mb-2">
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                id={perm.id}
+                                checked={formData.permissions.includes(perm.id)}
+                                onChange={(e) => {
+                                  const newPerms = e.target.checked 
+                                    ? [...formData.permissions, perm.id]
+                                    : formData.permissions.filter(p => p !== perm.id);
+                                  setFormData(prev => ({ ...prev, permissions: newPerms }));
+                                }}
+                              />
+                              <label className="form-check-label text-white small fw-600 cursor-pointer" htmlFor={perm.id}>
+                                {perm.label}
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="mb-4">
                       <label className="text-secondary small fw-700 text-uppercase mb-2 d-block" htmlFor="employeeDepartment">
@@ -267,9 +331,11 @@ const AddEmployees: React.FC = () => {
                     email: '',
                     password: '123456',
                     role: 'employee',
+                    permissions: [],
                     department: '',
                     position: '',
                     joining_date: new Date().toISOString().split('T')[0],
+                    manager_id: '',
                   })} className="btn btn-premium-secondary px-4 py-2">
                     Cancel
                   </button>

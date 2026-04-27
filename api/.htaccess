@@ -1,6 +1,10 @@
 # Enable rewrite engine
 RewriteEngine On
 
+# Pass Authorization header to PHP
+RewriteCond %{HTTP:Authorization} ^(.*)
+RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
+
 # Allow CORS preflight requests
 # Handled in db.php
 # Header always set Access-Control-Allow-Origin "*"

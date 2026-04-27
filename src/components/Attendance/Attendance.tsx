@@ -15,7 +15,7 @@ import {
 import { Employee, DailyAttendanceSummary } from "../../types";
 
 const Attendance: React.FC = () => {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isManager, hasPermission } = useAuth();
   const {
     employees,
     attendance: globalAttendance,
@@ -187,7 +187,7 @@ const Attendance: React.FC = () => {
     let result: any[] = [];
 
     dates.forEach(dateStr => {
-      if (isAdmin) {
+      if (isAdmin || isManager) {
         employees.filter(e => e.role !== 'admin').forEach((emp: Employee) => {
           if (employeeFilter && emp.id !== employeeFilter) return;
 
@@ -282,7 +282,7 @@ const Attendance: React.FC = () => {
               <h1 className="display-5 fw-800 text-white mb-2">Attendance</h1>
               <p className="text-secondary fw-500 mb-0">Track daily attendance and working hours</p>
             </div>
-            {isAdmin && (
+            {(isAdmin || isManager || hasPermission('manage_attendance')) && (
               <button onClick={handleManualRefresh} className="btn btn-premium-secondary d-flex align-items-center px-4 py-2">
                 <RefreshCw size={16} className={`me-2 ${globalLoading ? 'spin' : ''}`} />
                 Refresh Attendance
@@ -292,8 +292,70 @@ const Attendance: React.FC = () => {
         </div>
       </div>
 
-      {isAdmin ? (
+      {(isAdmin || isManager || hasPermission('manage_attendance')) && (
         <>
+          {isManager && (
+            <div className="row justify-content-center mb-5">
+              <div className="col-xl-8 col-lg-10">
+                <div className="premium-card border-0 shadow-lg overflow-hidden" style={{ background: 'var(--midnight-card)' }}>
+                  <div className="premium-card-body p-0">
+                    <div className="row g-0">
+                      <div className="col-md-5 p-4 d-flex flex-column justify-content-center align-items-center border-end border-secondary border-opacity-10" style={{ background: 'var(--midnight-elevated)' }}>
+                        <div 
+                          className={`pulse-container mb-3 ${isClockedIn ? 'active' : ''}`}
+                          style={{ 
+                            width: '80px', 
+                            height: '80px', 
+                            borderRadius: '50%', 
+                            background: isClockedIn ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
+                            border: `2px solid ${isClockedIn ? 'var(--success)' : 'rgba(255,255,255,0.1)'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            position: 'relative'
+                          }}
+                        >
+                          {isClockedIn && (
+                            <div className="pulse-ring" style={{ border: '2px solid var(--success)' }} />
+                          )}
+                          <Clock size={32} className={isClockedIn ? 'text-success' : 'text-dimmed'} />
+                        </div>
+                        <div className="text-center">
+                          <h5 className="text-white fw-800 mb-1">{isClockedIn ? 'Clocked In' : 'Clocked Out'}</h5>
+                          <p className="text-white opacity-50 small fw-700 text-uppercase mb-0 tracking-wider" style={{ fontSize: '0.6rem' }}>Current Status</p>
+                        </div>
+                      </div>
+                      <div className="col-md-7 p-4">
+                        <div className="d-flex justify-content-between align-items-center mb-4">
+                          <div>
+                            <div className="text-dimmed small fw-700 uppercase mb-1" style={{ fontSize: '0.6rem' }}>Working Hours</div>
+                            <div className="text-white fw-800 h5 mb-0">{safeToFixed(workingHours)}h</div>
+                          </div>
+                          <div>
+                            <div className="text-dimmed small fw-700 uppercase mb-1" style={{ fontSize: '0.6rem' }}>Daily Progress</div>
+                            <div className="text-cyan fw-800 h5 mb-0">{Math.round((safeNumber(workingHours)/8)*100)}%</div>
+                          </div>
+                        </div>
+
+                        <div className="d-grid gap-2">
+                          {!isClockedIn ? (
+                            <button onClick={handleClockIn} disabled={clockLoading} className="btn btn-premium-primary py-2 shadow-glow-cyan small">
+                              {clockLoading ? <div className="spinner-border spinner-border-sm" /> : <><CheckCircle className="me-2" size={16} /> Clock In</>}
+                            </button>
+                          ) : (
+                            <button onClick={handleClockOut} disabled={clockLoading} className="btn btn-premium-danger py-2 shadow-glow-danger small">
+                              {clockLoading ? <div className="spinner-border spinner-border-sm" /> : <><Clock className="me-2" size={16} /> Clock Out</>}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Admin Discovery Layer */}
           <div className="premium-card mb-5 border-0 shadow-lg" style={{ background: 'var(--midnight-card)' }}>
             <div className="premium-card-body py-4">
@@ -466,7 +528,9 @@ const Attendance: React.FC = () => {
             </div>
           </div>
         </>
-      ) : (
+      )}
+
+      {(!isAdmin && !isManager && !hasPermission('manage_attendance')) && (
         <div className="row justify-content-center">
           <div className="col-xl-8 col-lg-10">
             {/* Clocking Station */}
@@ -542,7 +606,6 @@ const Attendance: React.FC = () => {
                           onClick={handleClockOut}
                           disabled={clockLoading}
                           className="btn btn-premium-danger py-3 shadow-glow-danger"
-                          style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid #ef4444' }}
                         >
                           {clockLoading ? (
                             <><div className="spinner-border spinner-border-sm me-2" /> Clocking out...</>

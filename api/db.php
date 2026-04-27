@@ -52,11 +52,21 @@ class Database {
     public function getConnection() {
         $this->conn = null;
         
-        $dbType = getenv('DB_TYPE') ?: 'mysql'; // Force MySQL by default for live server
+        // DERIVE DB TYPE
+        $dbType = getenv('DB_TYPE');
+        if (!$dbType) {
+            // If not in env, check if we are on a common live host or if .db file exists
+            // But safest is to check if MySQL credentials are provided
+            $dbType = (getenv('DB_USER') && getenv('DB_USER') !== 'root') ? 'mysql' : 'sqlite';
+        }
+        
         $dbHost = getenv('DB_HOST') ?: 'localhost';
         $dbName = getenv('DB_NAME') ?: 'mosol9srujanwhma_hrms';
         $dbUser = getenv('DB_USER') ?: 'mosol9srujanwhma_hrmsuser';
         $dbPass = getenv('DB_PASS') ?: '$~;{~3wHb@kHe-c^';
+        
+        // Ensure constants are available for other files
+        if (!defined('DB_TYPE')) define('DB_TYPE', $dbType);
         $dbFile = __DIR__ . '/database.db';
 
         try {

@@ -10,20 +10,20 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, isMobileOpen, onMobileClose }) => {
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, user, hasPermission } = useAuth();
 
   const navigation = [
     { name: 'Dashboard', icon: Home, page: 'dashboard' },
     { name: 'Attendance', icon: Clock, page: 'attendance' },
     { name: 'My Leaves', icon: Calendar, page: 'leave-requests', employeeOnly: true },
-    { name: 'Leave Approvals', icon: FileText, page: 'leave-approvals', adminOnly: true },
+    { name: 'Leave Approvals', icon: FileText, page: 'leave-approvals', permission: 'manage_leaves' },
     { name: 'Holidays', icon: Gift, page: 'holidays' },
-    { name: 'Employees', icon: Users, page: 'employees', adminOnly: true },
-    { name: 'Add Employee', icon: UserPlus, page: 'add-employees', adminOnly: true },
+    { name: 'Employees', icon: Users, page: 'employees', permission: 'manage_employees' },
+    { name: 'Add Employee', icon: UserPlus, page: 'add-employees', permission: 'manage_employees' },
   ];
 
   const filteredNavigation = navigation.filter(item => {
-    if (item.adminOnly && !isAdmin) return false;
+    if (item.permission && !hasPermission(item.permission)) return false;
     if (item.employeeOnly && isAdmin) return false;
     return true;
   });

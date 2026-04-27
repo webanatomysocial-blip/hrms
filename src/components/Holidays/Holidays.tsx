@@ -6,7 +6,7 @@ import { Gift, Plus, Edit, Trash2, Calendar, Globe, Building, Star } from 'lucid
 import { Holiday as HolidayType } from '../../types';
 
 const Holiday: React.FC = () => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, hasPermission } = useAuth();
   const { holidays, refreshHolidays } = useData();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -146,7 +146,7 @@ const Holiday: React.FC = () => {
               <h1 className="display-5 fw-800 text-white mb-2">Company Holidays</h1>
               <p className="text-secondary fw-500 mb-0">View upcoming public and company holiday schedules</p>
             </div>
-            {isAdmin && (
+            {(isAdmin || hasPermission('manage_holidays')) && (
               <button
                 onClick={() => setShowAddModal(true)}
                 className="btn btn-premium-add d-flex align-items-center px-4 py-3 shadow-lg"
@@ -230,7 +230,7 @@ const Holiday: React.FC = () => {
                               {holiday.type}
                             </span>
                           </div>
-                          {isAdmin && (
+                          {(isAdmin || hasPermission('manage_holidays')) && (
                             <div className="dropdown opacity-0 group-hover-opacity-100 transition-all">
                               <button
                                 className="btn btn-sm btn-premium-secondary px-2 py-1"
@@ -313,7 +313,7 @@ const Holiday: React.FC = () => {
                         <th>Date</th>
                         <th>Type</th>
                         <th>Description</th>
-                        {isAdmin && <th className="text-end">Actions</th>}
+                        {(isAdmin || hasPermission('manage_holidays')) && <th className="text-end">Actions</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -339,7 +339,7 @@ const Holiday: React.FC = () => {
                             </div>
                           </td>
                           <td><div className="text-dimmed small fw-500 line-clamp-1">{holiday.description || 'No context logged.'}</div></td>
-                          {isAdmin && (
+                          {(isAdmin || hasPermission('manage_holidays')) && (
                             <td className="text-end">
                               <div className="d-flex justify-content-end gap-2">
                                 <button

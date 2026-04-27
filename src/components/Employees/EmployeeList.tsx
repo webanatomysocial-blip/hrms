@@ -10,7 +10,7 @@ interface EmployeeListProps {
 }
 
 const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, hasPermission } = useAuth();
   const { employees, refreshEmployees } = useData();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDepartment, setFilterDepartment] = useState('');
@@ -22,14 +22,16 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
   const [editFormData, setEditFormData] = useState({
     name: '',
     email: '',
-    role: 'employee' as 'admin' | 'employee',
+    role: 'employee' as 'admin' | 'manager' | 'employee',
+    permissions: [] as string[],
     department: '',
     position: '',
     joining_date: '',
+    manager_id: '' as string | number,
     password: '',
   });
 
-  if (!isAdmin) {
+  if (!isAdmin && !hasPermission('manage_employees')) {
     return (
       <div className="container-fluid">
         <div className="row justify-content-center">
@@ -48,9 +50,11 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
       name: employee.name || '',
       email: employee.email || '',
       role: employee.role || 'employee',
+      permissions: employee.permissions || [],
       department: employee.department || '',
       position: employee.position || '',
       joining_date: employee.joining_date || '',
+      manager_id: employee.manager_id || '',
       password: '',
     });
     setShowEditModal(true);
@@ -62,7 +66,10 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
 
     setLoading(true);
     try {
-      const response = await api.updateEmployee(editingEmployee.id, editFormData);
+      const response = await api.updateEmployee(editingEmployee.id, {
+        ...editFormData,
+        manager_id: editFormData.manager_id ? Number(editFormData.manager_id) : undefined
+      });
       if (response.success) {
         setShowEditModal(false);
         setEditingEmployee(null);
@@ -283,6 +290,7 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
                     <th>Employee</th>
                     <th>Department</th>
                     <th>Position</th>
+                    <th>Manager</th>
                     <th>Role</th>
                     <th>Joining Date</th>
                     <th className="text-end">Actions</th>
@@ -326,12 +334,17 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
                           <div className="text-white small fw-700">{employee.position || 'Standard'}</div>
                         </td>
                         <td>
+                          <div className="text-dimmed small fw-600">
+                            {employee.manager_name || <span className="opacity-25">---</span>}
+                          </div>
+                        </td>
+                        <td>
                           <div className="d-flex align-items-center">
                             <span className={`badge rounded-pill px-3 py-1 fw-700 text-uppercase`} style={{ 
                               fontSize: '0.65rem', 
-                              background: employee.role === 'admin' ? 'rgba(251,191,36,0.1)' : 'rgba(6,182,212,0.1)',
-                              color: employee.role === 'admin' ? 'var(--accent-gold)' : 'var(--accent-cyan)',
-                              border: `1px solid ${employee.role === 'admin' ? 'rgba(251,191,36,0.1)' : 'rgba(6,182,212,0.1)'}`
+                              background: employee.role === 'admin' ? 'rgba(251,191,36,0.1)' : employee.role === 'manager' ? 'rgba(99,102,241,0.1)' : 'rgba(6,182,212,0.1)',
+                              color: employee.role === 'admin' ? 'var(--accent-gold)' : employee.role === 'manager' ? 'var(--accent-indigo)' : 'var(--accent-cyan)',
+                              border: `1px solid ${employee.role === 'admin' ? 'rgba(251,191,36,0.1)' : employee.role === 'manager' ? 'rgba(99,102,241,0.1)' : 'rgba(6,182,212,0.1)'}`
                             }}>
                               {employee.role}
                             </span>
@@ -380,9 +393,61 @@ const EmployeeList: React.FC<EmployeeListProps> = ({ onPageChange }) => {
                                     <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Role</label>
                                     <select id="inlineEditRole" required value={editFormData.role} onChange={(e) => setEditFormData(prev => ({...prev, role: e.target.value as any}))} className="form-select bg-dark border-secondary border-opacity-20">
                                       <option value="employee">Employee</option>
+                                      <option value="manager">Manager</option>
                                       <option value="admin">Admin</option>
                                     </select>
                                   </div>
+
+                                  {editFormData.role === 'manager' && (
+                                    <div className="col-12 mt-3 mb-2">
+                                      <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Manager Permissions</label>
+                                      <div className="p-3 rounded-2 border border-secondary border-opacity-10 d-flex flex-wrap gap-3" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                                        {[
+                                          { id: 'manage_leaves', label: 'Leaves' },
+                                          { id: 'manage_attendance', label: 'Attendance' },
+                                          { id: 'manage_employees', label: 'Employees' },
+                                          { id: 'manage_holidays', label: 'Holidays' }
+                                        ].map(perm => (
+                                          <div key={perm.id} className="form-check">
+                                            <input
+                                              className="form-check-input"
+                                              type="checkbox"
+                                              id={`edit-${perm.id}`}
+                                              checked={editFormData.permissions.includes(perm.id)}
+                                              onChange={(e) => {
+                                                const newPerms = e.target.checked 
+                                                  ? [...editFormData.permissions, perm.id]
+                                                  : editFormData.permissions.filter(p => p !== perm.id);
+                                                setEditFormData(prev => ({ ...prev, permissions: newPerms }));
+                                              }}
+                                            />
+                                            <label className="form-check-label text-white small fw-600" htmlFor={`edit-${perm.id}`}>
+                                              {perm.label}
+                                            </label>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <div className="col-md-4">
+                                    <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Reporting Manager</label>
+                                    <select 
+                                      id="inlineEditManager" 
+                                      value={editFormData.manager_id} 
+                                      onChange={(e) => setEditFormData(prev => ({...prev, manager_id: e.target.value}))} 
+                                      className="form-select bg-dark border-secondary border-opacity-20"
+                                    >
+                                      <option value="">No Manager</option>
+                                      {employees
+                                        .filter(e => (e.role === 'admin' || e.role === 'manager') && e.id !== editingEmployee.id)
+                                        .map(mgr => (
+                                          <option key={mgr.id} value={mgr.id}>{mgr.name} ({mgr.role})</option>
+                                        ))
+                                      }
+                                    </select>
+                                  </div>
+
                                   <div className="col-md-4">
                                     <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Department</label>
                                     <select id="inlineEditDepartment" value={editFormData.department} onChange={(e) => setEditFormData(prev => ({...prev, department: e.target.value}))} className="form-select bg-dark border-secondary border-opacity-20">

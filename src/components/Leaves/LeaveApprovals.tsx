@@ -5,12 +5,12 @@ import { api } from '../../lib/api';
 import { CheckCircle, XCircle, Clock, Calendar, MessageSquare } from 'lucide-react';
 
 const LeaveApprovals: React.FC = () => {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, hasPermission } = useAuth();
   const { leaveRequests, refreshLeaveRequests } = useData();
   const [loading, setLoading] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState('');
 
-  if (!isAdmin) {
+  if (!isAdmin && !hasPermission('manage_leaves')) {
     return (
       <div className="container-fluid">
         <div className="row justify-content-center">
@@ -23,12 +23,28 @@ const LeaveApprovals: React.FC = () => {
     );
   }
 
-  const filteredRequests = leaveRequests
-    .filter(request => !filterStatus || request.status === filterStatus)
+  const accessibleRequests = leaveRequests.filter(request => {
+    if (isAdmin) return true; // Admins see everything
+    if (hasPermission('manage_leaves')) {
+      // Managers only see regular employees
+      return request.employee_role === 'employee';
+    }
+    return false;
+  });
+
+  const filteredRequests = accessibleRequests
+    .filter(request => {
+      const statusMatch = !filterStatus || request.status === filterStatus;
+      if (!statusMatch) return false;
+
+      if (isAdmin) return true;
+      // Managers only see pending requests in their list
+      return request.status === 'pending';
+    })
     .sort((a, b) => {
-      // Pending requests first, then by creation date
-      if (a.status === 'pending' && b.status !== 'pending') return -1;
-      if (b.status === 'pending' && a.status !== 'pending') return 1;
+      // Pending/Manager Approved first
+      const priority = (s: string) => s === 'pending' ? 2 : s === 'manager_approved' ? 1 : 0;
+      if (priority(a.status) !== priority(b.status)) return priority(b.status) - priority(a.status);
       return new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime();
     });
 
@@ -64,6 +80,8 @@ const LeaveApprovals: React.FC = () => {
     switch (status) {
       case 'approved':
         return <CheckCircle size={16} className="text-success" />;
+      case 'manager_approved':
+        return <CheckCircle size={16} className="text-info" />;
       case 'rejected':
         return <XCircle size={16} className="text-danger" />;
       case 'pending':
@@ -74,9 +92,9 @@ const LeaveApprovals: React.FC = () => {
   };
 
 
-  const pendingCount = leaveRequests.filter(l => l.status === 'pending').length;
-  const approvedCount = leaveRequests.filter(l => l.status === 'approved').length;
-  const rejectedCount = leaveRequests.filter(l => l.status === 'rejected').length;
+  const pendingCount = accessibleRequests.filter(l => l.status === 'pending').length;
+  const approvedCount = accessibleRequests.filter(l => l.status === 'approved').length;
+  const rejectedCount = accessibleRequests.filter(l => l.status === 'rejected').length;
 
   return (
     <div className="container-fluid fade-in px-0">
@@ -133,7 +151,7 @@ const LeaveApprovals: React.FC = () => {
             <div className="premium-stat-icon" style={{ background: 'rgba(6,182,212,0.1)', color: 'var(--accent-cyan)' }}>
               <Calendar size={24} />
             </div>
-            <div className="premium-stat-number">{leaveRequests.length}</div>
+            <div className="premium-stat-number">{accessibleRequests.length}</div>
             <div className="premium-stat-label">Total Requests</div>
           </div>
         </div>
@@ -155,8 +173,9 @@ const LeaveApprovals: React.FC = () => {
                 onChange={(e) => setFilterStatus(e.target.value)}
               >
                 <option value="" className="bg-dark">All Requests</option>
-                <option value="pending" className="bg-dark">Pending</option>
-                <option value="approved" className="bg-dark">Approved</option>
+                <option value="pending" className="bg-dark">Pending (Stage 1)</option>
+                <option value="manager_approved" className="bg-dark">Manager Approved (Stage 2)</option>
+                <option value="approved" className="bg-dark">Final Approved</option>
                 <option value="rejected" className="bg-dark">Rejected</option>
               </select>
             </div>
@@ -210,20 +229,15 @@ const LeaveApprovals: React.FC = () => {
                           <div className="flex-grow-1">
                             <div className="d-flex align-items-center gap-3 mb-2">
                               <h5 className="text-white fw-800 mb-0">{request.employee_name}</h5>
-                              <span className={`badge rounded-pill px-3 py-1 fw-700 text-uppercase`} style={{ 
-                                fontSize: '0.6rem', 
-                                background: request.type === 'sick' ? 'rgba(239,68,68,0.1)' : 
-                                           request.type === 'vacation' ? 'rgba(16,185,129,0.1)' : 
-                                           'rgba(99,102,241,0.1)',
-                                color: request.type === 'sick' ? '#ef4444' : 
-                                       request.type === 'vacation' ? 'var(--success)' : 
-                                       'var(--accent-indigo)',
-                                border: '1px solid rgba(255,255,255,0.05)'
-                              }}>
+                              <span className={`badge-premium ${
+                                request.type === 'sick' ? 'badge-premium-danger' : 
+                                request.type === 'vacation' ? 'badge-premium-success' : 
+                                'badge-premium-indigo'
+                              }`}>
                                 {request.type}
                               </span>
                               {request.is_unpaid && (
-                                <span className="badge bg-warning bg-opacity-10 text-warning px-2 py-1 rounded-pill" style={{ fontSize: '0.55rem' }}>UNPAID</span>
+                                <span className="badge-premium badge-premium-warning">UNPAID</span>
                               )}
                             </div>
                             <div className="d-flex align-items-center gap-4 text-dimmed small fw-600 mb-2">
@@ -242,8 +256,11 @@ const LeaveApprovals: React.FC = () => {
                             </div>
                             <div className="text-dimmed fw-500 mt-2" style={{ fontSize: '0.65rem' }}>
                               Submitted on {new Date(request.created_at || '').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                              {request.manager_approved_by_name && (
+                                <span className="ms-2 ps-2 border-start border-secondary border-opacity-20 fst-italic text-info">Endorsed by Manager: {request.manager_approved_by_name}</span>
+                              )}
                               {request.approved_by_name && (
-                                <span className="ms-2 ps-2 border-start border-secondary border-opacity-20 fst-italic">Approved by: {request.approved_by_name}</span>
+                                <span className="ms-2 ps-2 border-start border-secondary border-opacity-20 fst-italic text-success">Final Approval by: {request.approved_by_name}</span>
                               )}
                             </div>
                           </div>
@@ -255,10 +272,14 @@ const LeaveApprovals: React.FC = () => {
                               <div className="text-end">
                                 <div className={`fw-800 text-uppercase small ${
                                   request.status === 'approved' ? 'text-success' :
+                                  request.status === 'manager_approved' ? 'text-info' :
                                   request.status === 'rejected' ? 'text-danger' :
                                   'text-warning'
-                                }`} style={{ fontSize: '0.75rem', letterSpacing: '0.05em' }}>
-                                  Status: {request.status}
+                                }`} style={{ fontSize: '0.7rem', letterSpacing: '0.08em' }}>
+                                  {request.status === 'manager_approved' ? 'Stage: Manager Endorsed' : 
+                                   request.status === 'approved' ? 'Final Approved' :
+                                   request.status === 'rejected' ? 'Rejected' :
+                                   'Pending Stage 1'}
                                 </div>
                               </div>
                               <div 
@@ -267,12 +288,15 @@ const LeaveApprovals: React.FC = () => {
                                   width: '44px', 
                                   height: '44px', 
                                   background: request.status === 'approved' ? 'rgba(16,185,129,0.15)' : 
+                                             request.status === 'manager_approved' ? 'rgba(6,182,212,0.15)' :
                                              request.status === 'rejected' ? 'rgba(239,68,68,0.15)' : 
                                              'rgba(251,191,36,0.15)',
                                   color: request.status === 'approved' ? 'var(--success)' : 
+                                         request.status === 'manager_approved' ? 'var(--accent-cyan)' :
                                          request.status === 'rejected' ? '#ef4444' : 
                                          'var(--accent-gold)',
                                   border: `1px solid ${request.status === 'approved' ? 'rgba(16,185,129,0.2)' : 
+                                                    request.status === 'manager_approved' ? 'rgba(6,182,212,0.2)' :
                                                     request.status === 'rejected' ? 'rgba(239,68,68,0.2)' : 
                                                     'rgba(251,191,36,0.2)'}`
                                 }}
@@ -281,25 +305,26 @@ const LeaveApprovals: React.FC = () => {
                               </div>
                             </div>
                             
-                            {request.status === 'pending' && (
+                            {(request.status === 'pending' || (isAdmin && request.status === 'manager_approved')) && (
                               <div className="d-flex gap-2 justify-content-end mt-2">
                                 <button
                                   onClick={() => handleApproval(request.id, 'approved')}
                                   disabled={loading === request.id}
-                                  className="btn btn-premium-cyan btn-sm px-4 py-2 fw-800 shadow-glow-cyan"
+                                  className={`btn ${isAdmin && request.status === 'manager_approved' ? 'btn-premium-success' : 'btn-premium-cyan'} btn-sm px-4 py-2 fw-800 shadow-glow-cyan`}
                                   style={{ fontSize: '0.65rem' }}
                                 >
                                   {loading === request.id ? (
                                     <div className="spinner-border spinner-border-sm" role="status" />
                                   ) : (
-                                    <>APPROVE</>
+                                    <>{isAdmin && request.status === 'manager_approved' ? 'FINAL APPROVE' : 
+                                       isAdmin ? 'ENDORSE & APPROVE' : 'ENDORSE REQUEST'}</>
                                   )}
                                 </button>
                                 <button
                                   onClick={() => handleApproval(request.id, 'rejected')}
                                   disabled={loading === request.id}
-                                  className="btn btn-premium-danger btn-sm px-4 py-2 fw-800"
-                                  style={{ fontSize: '0.65rem', background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid #ef4444' }}
+                                  className="btn btn-premium-danger btn-sm px-4 py-2 fw-800 shadow-glow-danger"
+                                  style={{ fontSize: '0.65rem' }}
                                 >
                                   {loading === request.id ? (
                                     <div className="spinner-border spinner-border-sm" role="status" />

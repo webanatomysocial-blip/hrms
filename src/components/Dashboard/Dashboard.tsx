@@ -18,7 +18,7 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isManager } = useAuth();
   const { 
     employees, 
     attendance, 
@@ -170,16 +170,41 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
   };
 
   const empList = employees.filter(e => e.role !== 'admin');
+  const empIds = new Set(empList.map(e => e.id));
   const totalEmployees = empList.length;
-  const todayAttendance = attendance.filter((a: DailyAttendanceSummary) => a.date === today);
-  const presentToday = todayAttendance.filter((a: DailyAttendanceSummary) => a.status === 'present' || a.status === 'late' || a.status === 'half_day').length;
-  const lateToday = todayAttendance.filter((a: DailyAttendanceSummary) => a.status === 'late').length;
-  const pendingLeaves = leaveRequests.filter((l: any) => l.status === 'pending').length;
+  
+  const todayAttendance = attendance.filter((a: DailyAttendanceSummary) => 
+    a.date === today && empIds.has(Number(a.employee_id))
+  );
+  
+  const presentToday = todayAttendance.filter((a: DailyAttendanceSummary) => 
+    a.status === 'present' || a.status === 'late' || a.status === 'half_day'
+  ).length;
+  
+  const lateToday = todayAttendance.filter((a: DailyAttendanceSummary) => 
+    a.status === 'late'
+  ).length;
+  
+  const pendingLeaves = leaveRequests.filter((l: any) => {
+    const isPending = l.status === 'pending';
+    const isVisibleEmp = empIds.has(Number(l.employee_id));
+    if (!isPending || !isVisibleEmp) return false;
+    
+    // Managers only see pending from regular employees
+    if (isManager && !isAdmin) {
+      return l.employee_role === 'employee';
+    }
+    return true;
+  }).length;
   
   // Safe comparison for leave dates
   const approvedLeavesToday = leaveRequests.filter((l: any) => {
-    if (l.status !== 'approved') return false;
-    // Also exclude admins from leave count if necessary, but assuming they don't apply for leaves much
+    if (l.status !== 'approved' && l.status !== 'manager_approved') return false;
+    if (!empIds.has(Number(l.employee_id))) return false;
+    
+    // Managers only see leaves from regular employees
+    if (isManager && !isAdmin && l.employee_role !== 'employee') return false;
+
     const start = safeDate(l.start_date).getTime();
     const end = safeDate(l.end_date).getTime();
     const current = safeDate(today).getTime();
@@ -189,15 +214,26 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
   const attendanceRate = totalEmployees > 0 ? Math.round((presentToday / totalEmployees) * 100) : 0;
 
   const leavesTodayList = leaveRequests.filter((l: any) => {
-    if (l.status !== 'approved') return false;
+    if (l.status !== 'approved' && l.status !== 'manager_approved') return false;
+    if (!empIds.has(Number(l.employee_id))) return false;
+
+    // Managers only see leaves from regular employees
+    if (isManager && !isAdmin && l.employee_role !== 'employee') return false;
+
     const start = safeDate(l.start_date).getTime();
     const end = safeDate(l.end_date).getTime();
     const current = safeDate(today).getTime();
     return current >= start && current <= end;
   }).slice(0, 10);
   
-  const recentAttendance = attendance.filter((a: DailyAttendanceSummary) => safeDate(a.date).getTime() >= safeDate(today).getTime() - (7 * 24 * 60 * 60 * 1000))
-    .sort((a: DailyAttendanceSummary, b: DailyAttendanceSummary) => safeDate(b.date).getTime() - safeDate(a.date).getTime()).slice(0, 5);
+  const recentAttendance = attendance.filter((a: DailyAttendanceSummary) => {
+    const isVisibleEmp = empIds.has(Number(a.employee_id));
+    if (!isVisibleEmp) return false;
+    // Managers only see attendance from regular employees
+    // Wait, the user didn't explicitly ask for attendance to be hidden, but it makes sense for hierarchy
+    // But better stay focused on "if a manager apply for leave only admins need to get those"
+    return safeDate(a.date).getTime() >= safeDate(today).getTime() - (7 * 24 * 60 * 60 * 1000);
+  }).sort((a: DailyAttendanceSummary, b: DailyAttendanceSummary) => safeDate(b.date).getTime() - safeDate(a.date).getTime()).slice(0, 5);
     
   const upcomingHolidays = holidays.filter((h: any) => safeDate(h.date).getTime() > safeDate(today).getTime()).slice(0, 4);
 
@@ -300,7 +336,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
                         Clock In Now
                       </button>
                     ) : (
-                      <button onClick={handleQuickClockOut} disabled={clockLoading} className="btn btn-premium-danger px-5 py-3 rounded-pill shadow-lg">
+                      <button onClick={handleQuickClockOut} disabled={clockLoading} className="btn btn-premium-danger px-5 py-3 rounded-pill shadow-glow-danger">
                         {clockLoading ? (
                           <div className="spinner-border spinner-border-sm me-2" role="status" />
                         ) : (
@@ -318,7 +354,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
 
       {/* Stats Cards Row */}
       <div className="row mb-5">
-        {isAdmin ? (
+        {(isAdmin || isManager) ? (
           <>
             <div className="col-lg-3 col-md-6 mb-4">
               <div className="premium-stat-card h-100">
@@ -563,10 +599,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
             </div>
             <div className="premium-card-body p-4">
               <div className="d-grid gap-3">
-                {isAdmin ? (
+                {(isAdmin || isManager) ? (
                   <>
                     <button onClick={() => onPageChange('employees')} className="btn btn-premium-primary text-start d-flex align-items-center justify-content-between group">
-                      <span className="d-flex align-items-center"><Users size={18} className="me-3" /> Manage Employees</span>
+                      <span className="d-flex align-items-center"><Users size={18} className="me-3" /> {isAdmin ? 'Manage Employees' : 'Employee Directory'}</span>
                       <ChevronRight size={16} className="opacity-50" />
                     </button>
                     <button onClick={() => onPageChange('leave-approvals')} className="btn btn-premium-secondary text-start d-flex align-items-center justify-content-between">
@@ -576,14 +612,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
                       </span>
                       <ChevronRight size={16} className="opacity-50" />
                     </button>
-                    <button onClick={() => onPageChange('add-employees')} className="btn btn-premium-secondary text-start d-flex align-items-center justify-content-between">
-                      <span className="d-flex align-items-center"><UserPlus size={18} className="me-3 text-cyan" /> Add New Employee</span>
-                      <ChevronRight size={16} className="opacity-50" />
-                    </button>
+                    {isAdmin && (
+                      <button onClick={() => onPageChange('add-employees')} className="btn btn-premium-secondary text-start d-flex align-items-center justify-content-between">
+                        <span className="d-flex align-items-center"><UserPlus size={18} className="me-3 text-cyan" /> Add New Employee</span>
+                        <ChevronRight size={16} className="opacity-50" />
+                      </button>
+                    )}
                     <button onClick={() => onPageChange('holidays')} className="btn btn-premium-secondary text-start d-flex align-items-center justify-content-between">
-                      <span className="d-flex align-items-center"><Gift size={18} className="me-3 text-indigo" /> Manage Holidays</span>
+                      <span className="d-flex align-items-center"><Gift size={18} className="me-3 text-indigo" /> {isAdmin ? 'Manage Holidays' : 'Holiday Calendar'}</span>
                       <ChevronRight size={16} className="opacity-50" />
                     </button>
+                    {isManager && (
+                      <button onClick={() => onPageChange('attendance')} className="btn btn-premium-secondary text-start d-flex align-items-center justify-content-between">
+                        <span className="d-flex align-items-center"><Clock size={18} className="me-3 text-cyan" /> My Attendance</span>
+                        <ChevronRight size={16} className="opacity-50" />
+                      </button>
+                    )}
                   </>
                 ) : (
                   <>

@@ -98,6 +98,8 @@ const LeaveRequest: React.FC = () => {
     switch (status) {
       case 'approved':
         return <CheckCircle size={16} className="text-success" />;
+      case 'manager_approved':
+        return <CheckCircle size={16} className="text-info" />;
       case 'rejected':
         return <XCircle size={16} className="text-danger" />;
       case 'pending':
@@ -340,20 +342,15 @@ const LeaveRequest: React.FC = () => {
                           </div>
                           <div>
                             <div className="d-flex align-items-center gap-3 mb-2">
-                              <span className={`badge rounded-pill px-3 py-1 fw-700 text-uppercase`} style={{ 
-                                fontSize: '0.6rem', 
-                                background: leave.type === 'sick' ? 'rgba(239,68,68,0.1)' : 
-                                           leave.type === 'vacation' ? 'rgba(16,185,129,0.1)' : 
-                                           'rgba(99,102,241,0.1)',
-                                color: leave.type === 'sick' ? '#ef4444' : 
-                                       leave.type === 'vacation' ? 'var(--success)' : 
-                                       'var(--accent-indigo)',
-                                border: `1px solid rgba(255,255,255,0.05)`
-                              }}>
+                              <span className={`badge-premium ${
+                                leave.type === 'sick' ? 'badge-premium-danger' : 
+                                leave.type === 'vacation' ? 'badge-premium-success' : 
+                                'badge-premium-indigo'
+                              }`}>
                                 {leave.type}
                               </span>
                               {leave.is_unpaid && (
-                                <span className="badge bg-warning bg-opacity-10 text-warning px-2 py-1 rounded-pill" style={{ fontSize: '0.55rem' }}>UNPAID</span>
+                                <span className="badge-premium badge-premium-warning">UNPAID</span>
                               )}
                             </div>
                             <h6 className="text-white fw-700 mb-2">{leave.reason}</h6>
@@ -376,10 +373,14 @@ const LeaveRequest: React.FC = () => {
                             <div className="text-end">
                               <div className={`fw-800 text-uppercase small mb-1 ${
                                 leave.status === 'approved' ? 'text-success' :
+                                leave.status === 'manager_approved' ? 'text-info' :
                                 leave.status === 'rejected' ? 'text-danger' :
                                 'text-warning'
                               }`} style={{ fontSize: '0.7rem' }}>
-                                Status: {leave.status}
+                                {leave.status === 'manager_approved' ? 'Status: Manager Endorsed' : 
+                                 leave.status === 'approved' ? 'Status: Approved' :
+                                 leave.status === 'rejected' ? 'Status: Rejected' :
+                                 'Status: Pending Approval'}
                               </div>
                               <div className="text-dimmed fw-500" style={{ fontSize: '0.65rem' }}>
                                 Submitted: {new Date(leave.created_at || '').toLocaleDateString()}
@@ -391,9 +392,11 @@ const LeaveRequest: React.FC = () => {
                                 width: '40px', 
                                 height: '40px', 
                                 background: leave.status === 'approved' ? 'rgba(16,185,129,0.1)' : 
+                                           leave.status === 'manager_approved' ? 'rgba(6,182,212,0.1)' :
                                            leave.status === 'rejected' ? 'rgba(239,68,68,0.1)' : 
                                            'rgba(251,191,36,0.1)',
                                 color: leave.status === 'approved' ? 'var(--success)' : 
+                                       leave.status === 'manager_approved' ? 'var(--accent-cyan)' :
                                        leave.status === 'rejected' ? '#ef4444' : 
                                        'var(--accent-gold)'
                               }}

@@ -42,10 +42,11 @@ switch($method) {
 
 function getAllLeaves($db) {
     try {
-        $query = "SELECT lr.*, u_app.name as approved_by_name 
+        $query = "SELECT lr.*, u_emp.role as employee_role, u_app.name as approved_by_name, u_man.name as manager_approved_by_name 
                   FROM leave_requests lr 
                   JOIN users u_emp ON lr.employee_id = u_emp.id
                   LEFT JOIN users u_app ON lr.approved_by = u_app.id 
+                  LEFT JOIN users u_man ON lr.manager_approved_by = u_man.id
                   WHERE u_emp.role != 'admin'
                   ORDER BY lr.created_at DESC";
         $stmt = $db->prepare($query);
@@ -60,9 +61,10 @@ function getAllLeaves($db) {
 
 function getEmployeeLeaves($db, $employeeId) {
     try {
-        $query = "SELECT lr.*, u.name as approved_by_name 
+        $query = "SELECT lr.*, u.name as approved_by_name, um.name as manager_approved_by_name 
                   FROM leave_requests lr 
                   LEFT JOIN users u ON lr.approved_by = u.id 
+                  LEFT JOIN users um ON lr.manager_approved_by = um.id
                   WHERE lr.employee_id = :employee_id 
                   ORDER BY lr.created_at DESC";
         $stmt = $db->prepare($query);
@@ -138,24 +140,47 @@ function approveLeave($db, $id, $input) {
     }
 
     $status = validateInput($input['status']);
-    $approvedBy = $input['approved_by'];
+    $approverId = $input['approved_by'];
 
     if (!in_array($status, ['approved', 'rejected'])) {
         sendResponse(false, 'Invalid status. Use approved or rejected');
     }
 
     try {
+        // Get approver role
+        $roleQuery = "SELECT role FROM users WHERE id = :id";
+        $roleStmt = $db->prepare($roleQuery);
+        $roleStmt->bindParam(':id', $approverId);
+        $roleStmt->execute();
+        $approver = $roleStmt->fetch();
+        
+        if (!$approver) {
+            sendResponse(false, 'Approver not found');
+        }
+        $role = $approver['role'];
+
         $now = (getenv('DB_TYPE') === 'mysql') ? "NOW()" : "DATETIME('now', 'localtime')";
-        $query = "UPDATE leave_requests SET status = :status, approved_by = :approved_by, approved_at = $now 
-                  WHERE id = :id";
+        
+        if ($status === 'rejected') {
+            $query = "UPDATE leave_requests SET status = 'rejected', status_detail = 'rejected', approved_by = :approver_id, approved_at = $now WHERE id = :id";
+            $params = [':approver_id' => $approverId, ':id' => $id];
+        } else {
+            // Approval flow
+            if ($role === 'admin') {
+                $query = "UPDATE leave_requests SET status = 'approved', status_detail = 'approved', approved_by = :approver_id, approved_at = $now WHERE id = :id";
+                $params = [':approver_id' => $approverId, ':id' => $id];
+            } else if ($role === 'manager') {
+                $query = "UPDATE leave_requests SET status = 'manager_approved', status_detail = 'manager_approved', manager_approved_by = :approver_id, manager_approved_at = $now WHERE id = :id";
+                $params = [':approver_id' => $approverId, ':id' => $id];
+            } else {
+                sendResponse(false, 'Only admins and managers can approve leaves');
+            }
+        }
         
         $stmt = $db->prepare($query);
-        $stmt->bindParam(':status', $status);
-        $stmt->bindParam(':approved_by', $approvedBy);
-        $stmt->bindParam(':id', $id);
-
-        if ($stmt->execute()) {
-            sendResponse(true, "Leave request {$status} successfully");
+        if ($stmt->execute($params)) {
+             $finalStatus = ($status === 'approved' && $role === 'manager') ? 'manager_approved' : $status;
+             sendResponse(true, "Leave request status updated to {$finalStatus} successfully");
         } else {
             sendResponse(false, 'Failed to update leave request status');
         }

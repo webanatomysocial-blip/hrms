@@ -25,8 +25,8 @@ switch ($method) {
         if (isset($_GET['employee_id'])) {
             $requestedEmployeeId = (int)$_GET['employee_id'];
             
-            // Authorization Check: Only Admin or the User themselves can view their attendance
-            if ($userRole !== 'admin' && (int)$requestedEmployeeId !== (int)$userId) {
+            // Authorization Check: Only Admin, Manager or the User themselves can view their attendance
+            if ($userRole !== 'admin' && $userRole !== 'manager' && (int)$requestedEmployeeId !== (int)$userId) {
                 sendResponse(false, 'Unauthorized access to employee data');
             }
             
@@ -40,7 +40,7 @@ switch ($method) {
             if (isset($_GET['summary'])) {
                 // ✅ ALLOW: Everyone can see the global summary for the dashboard
                 getAllAttendanceSummary($db);
-            } elseif ($userRole === 'admin') {
+            } elseif ($userRole === 'admin' || $userRole === 'manager') {
                 if (isset($_GET['sync_summaries'])) {
                     syncAllDailySummaries($db);
                 } else {
@@ -242,7 +242,7 @@ function clockIn($db, $input) {
             }
         }
 
-        $now = (getenv('DB_TYPE') === 'mysql') ? "NOW()" : "DATETIME('now', 'localtime')";
+        $now = (DB_TYPE === 'mysql') ? "NOW()" : "DATETIME('now', 'localtime')";
         $insertStmt = $db->prepare("INSERT INTO attendance 
                              (employee_id, employee_name, date, time, entry_type, session_id, ip_address, created_at) 
                              VALUES (:eid, :ename, :d, :t, 'in', :sid, :ip, $now)");
@@ -481,8 +481,7 @@ function updateDailySummary($db, $employeeId, $employeeName, $date) {
         }
 
 
-        $dbType = getenv('DB_TYPE') ?: 'sqlite';
-        if ($dbType === 'mysql') {
+        if (DB_TYPE === 'mysql') {
             $summaryStmt = $db->prepare("
                 INSERT INTO daily_attendance_summary 
                 (employee_id, employee_name, date, total_working_hours, total_break_time, status, first_clock_in, last_clock_out, created_at, updated_at) 

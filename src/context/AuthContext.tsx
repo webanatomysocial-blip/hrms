@@ -6,6 +6,8 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   isAdmin: boolean;
+  isManager: boolean;
+  hasPermission: (permission: string) => boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -63,11 +65,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const isAdmin = user?.role === 'admin';
+  const isManager = user?.role === 'manager';
+  
+  const hasPermission = (permission: string) => {
+    if (isAdmin) return true;
+    return user?.permissions?.includes(permission) || false;
+  };
 
   const value: AuthContextType = {
     user,
     loading,
     isAdmin,
+    isManager,
+    hasPermission,
     login,
     logout,
   };
