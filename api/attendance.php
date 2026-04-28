@@ -465,13 +465,15 @@ function updateDailySummary($db, $employeeId, $employeeName, $date) {
         
         // Determine status
         $status = 'present';
-        if ($firstClockIn && strtotime($firstClockIn) > strtotime('09:30:00')) {
-            $status = 'late';
-        }
         
         // If they have worked less than 4 hours but have clocked out at least once today
         if ($totalWorkingHours > 0 && $totalWorkingHours < 4 && $lastClockOut !== null) {
             $status = 'half_day';
+        }
+        
+        // Late takes precedence: if anyone comes after 9:15 they get late
+        if ($firstClockIn && strtotime($firstClockIn) > strtotime('09:15:00')) {
+            $status = 'late';
         }
         
         // If they are currently clocked in (lastClockOut is null) 
