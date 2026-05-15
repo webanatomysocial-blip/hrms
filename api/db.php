@@ -1,33 +1,31 @@
 <?php
 // Production Error Handling
-error_reporting(0);
+error_reporting(E_ALL);
 ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+ini_set('error_log', __DIR__ . '/logs/php_error.log');
+
+// Global Exception Handler
+set_exception_handler(function ($e) {
+    error_log("Uncaught Exception: " . $e->getMessage());
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Server Error: ' . $e->getMessage()]);
+    exit;
+});
+
 /**
- * CORS handling - MUST be at the very top
+ * CORS handling
  */
-$origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
-if (!empty($origin)) {
-    header("Access-Control-Allow-Origin: $origin");
-    header('Access-Control-Allow-Credentials: true');
-} else {
-    header("Access-Control-Allow-Origin: *");
-}
+header("Access-Control-Allow-Origin: *");
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
-header('Access-Control-Max-Age: 86400');
+header('Content-Type: application/json; charset=utf-8');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit(0);
 }
 
-header('Content-Type: application/json; charset=utf-8');
-session_start();
-
-
-/**
- * Basic .env parser
- */
 function loadEnv($path) {
     if (!file_exists($path)) return;
     $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
@@ -42,32 +40,22 @@ function loadEnv($path) {
 }
 loadEnv(__DIR__ . '/../.env');
 
-// Define JWT Secret (read from env or fallback)
-define('JWT_SECRET', getenv('JWT_SECRET') ?: 'KaphiMosol9_HRMS_Secret_Key_2026_Secure!!');
-
+// GLOBAL SECRET KEY
+if (!defined('JWT_SECRET')) {
+    define('JWT_SECRET', getenv('JWT_SECRET') ?: 'KaphiMosol9_HRMS_Secret_Key_2026_Secure!!');
+}
 
 class Database {
     private $conn;
 
     public function getConnection() {
-        $this->conn = null;
-        
-        // DERIVE DB TYPE
-        $dbType = getenv('DB_TYPE');
-        if (!$dbType) {
-            // If not in env, check if we are on a common live host or if .db file exists
-            // But safest is to check if MySQL credentials are provided
-            $dbType = (getenv('DB_USER') && getenv('DB_USER') !== 'root') ? 'mysql' : 'sqlite';
-        }
-        
+        $dbType = getenv('DB_TYPE') ?: 'mysql';
         $dbHost = getenv('DB_HOST') ?: 'localhost';
-        $dbName = getenv('DB_NAME') ?: 'mosol9srujanwhma_hrms';
-        $dbUser = getenv('DB_USER') ?: 'mosol9srujanwhma_hrmsuser';
-        $dbPass = getenv('DB_PASS') ?: '$~;{~3wHb@kHe-c^';
+        $dbName = getenv('DB_NAME');
+        $dbUser = getenv('DB_USER');
+        $dbPass = getenv('DB_PASS');
         
-        // Ensure constants are available for other files
         if (!defined('DB_TYPE')) define('DB_TYPE', $dbType);
-        $dbFile = __DIR__ . '/database.db';
 
         try {
             if ($dbType === 'mysql') {
@@ -78,181 +66,56 @@ class Database {
                     PDO::ATTR_EMULATE_PREPARES => false,
                 ]);
             } else {
-                $this->conn = new PDO(
-                    "sqlite:" . $dbFile,
-                    null,
-                    null,
-                    [
-                        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                        PDO::ATTR_EMULATE_PREPARES => false,
-                    ]
-                );
-                // Enable foreign keys for SQLite
-                $this->conn->exec("PRAGMA foreign_keys = ON;");
+                $this->conn = new PDO("sqlite:" . __DIR__ . "/database.db");
             }
-        } catch(PDOException $exception) {
-            error_log('Database connection error: ' . $exception->getMessage());
-            sendResponse(false, 'Database connection failed. Please ensure your .env configuration is correct.');
-            exit();
+            return $this->conn;
+        } catch(PDOException $e) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'DB Error: ' . $e->getMessage()]);
+            exit;
         }
-
-        return $this->conn;
     }
 }
 
-/**
- * Send standardized JSON response
- */
 function sendResponse($success, $message, $data = null) {
-    $response = [
-        'success' => $success,
-        'message' => $message
-    ];
-    
-    if ($data !== null) {
-        $response['data'] = $data;
-    }
-    
-    http_response_code($success ? 200 : 400); // Simple status code approach
-    echo json_encode($response);
+    echo json_encode(['success' => $success, 'message' => $message, 'data' => $data]);
     exit();
 }
 
-/**
- * Sanitize and validate input
- */
-function validateInput($data) {
-    if ($data === null) {
-        return null;
-    }
-    return strip_tags(trim($data));
-}
-
-/**
- * Get Bearer token from Authorization header
- */
 function getBearerToken() {
-    $headers = null;
-    
-    if (isset($_SERVER['Authorization'])) {
-        $headers = trim($_SERVER['Authorization']);
-    } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
-        $headers = trim($_SERVER['HTTP_AUTHORIZATION']);
-    } elseif (function_exists('apache_request_headers')) {
-        $requestHeaders = apache_request_headers();
-        $requestHeaders = array_combine(
-            array_map('ucwords', array_keys($requestHeaders)), 
-            array_values($requestHeaders)
-        );
-        if (isset($requestHeaders['Authorization'])) {
-            $headers = trim($requestHeaders['Authorization']);
-        }
-    }
-    
-    // Extract token from "Bearer <token>" format
-    if (!empty($headers)) {
-        if (preg_match('/Bearer\s+(.*)$/i', $headers, $matches)) {
-            return $matches[1];
-        }
-    }
-    
+    $headers = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['Authorization'] ?? '';
+    if (preg_match('/Bearer\s+(.*)$/i', $headers, $matches)) return $matches[1];
     return null;
 }
 
-/**
- * Base64Url Encode
- */
-function base64UrlEncode($data) {
-    return str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($data));
-}
-
-/**
- * Generate Secure JWT Token
- */
-function generateJWT($userId, $role = 'employee') {
-    $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
-    $payload = json_encode([
-        'sub' => $userId,
-        // 'role' => $role, // Can add role if needed
-        'iat' => time(),
-        'exp' => time() + (86400 * 7) // Valid for 7 days
-    ]);
-
-    $base64UrlHeader = base64UrlEncode($header);
-    $base64UrlPayload = base64UrlEncode($payload);
-
-    $signature = hash_hmac('sha256', $base64UrlHeader . "." . $base64UrlPayload, JWT_SECRET, true);
-    $base64UrlSignature = base64UrlEncode($signature);
-
-    return $base64UrlHeader . "." . $base64UrlPayload . "." . $base64UrlSignature;
-}
-
-/**
- * Verify JWT Token and return User ID
- */
 function verifyBearerToken() {
     $token = getBearerToken();
     if (!$token) return null;
-
     $parts = explode('.', $token);
     if (count($parts) !== 3) return null;
-
+    
+    // Use the same secret as defined globally
+    $secret = JWT_SECRET;
+    
     $header = $parts[0];
     $payload = $parts[1];
-    $signatureProvided = $parts[2];
-
-    // Re-create signature
-    $signature = hash_hmac('sha256', $header . "." . $payload, JWT_SECRET, true);
-    $base64UrlSignature = base64UrlEncode($signature);
-
-    // Verify signature
-    if (!hash_equals($base64UrlSignature, $signatureProvided)) {
-        return null;
-    }
-
-    // Verify Expiration
-    $payloadData = json_decode(base64_decode(str_replace(['-', '_'], ['+', '/'], $payload)), true);
-    if (!isset($payloadData['exp']) || $payloadData['exp'] < time()) {
-        return null; // Expired
-    }
-
-    return isset($payloadData['sub']) ? $payloadData['sub'] : null;
-}
-
-/**
- * Validate email format
- */
-function validateEmail($email) {
-    return filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
-}
-
-/**
- * Validate date format (YYYY-MM-DD)
- */
-function validateDate($date) {
-    $d = DateTime::createFromFormat('Y-m-d', $date);
-    return $d && $d->format('Y-m-d') === $date;
-}
-
-/**
- * Log errors to file
- */
-function logError($message, $context = []) {
-    $logFile = __DIR__ . '/logs/error.log';
-    $logDir = dirname($logFile);
+    $signature = $parts[2];
     
-    if (!is_dir($logDir)) {
-        mkdir($logDir, 0755, true);
-    }
+    $validSignature = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode(hash_hmac('sha256', "$header.$payload", $secret, true)));
     
-    $timestamp = date('Y-m-d H:i:s');
-    $contextStr = !empty($context) ? json_encode($context) : '';
-    $logMessage = "[$timestamp] $message $contextStr" . PHP_EOL;
+    if ($signature !== $validSignature) return null;
     
-    error_log($logMessage, 3, $logFile);
+    $decodedPayload = json_decode(base64_decode(str_replace(['-', '_'], ['+', '/'], $payload)), true);
+    if (!$decodedPayload || (isset($decodedPayload['exp']) && $decodedPayload['exp'] < time())) return null;
+    
+    return $decodedPayload['sub'] ?? null;
 }
 
-// Set timezone
+function validateInput($data) { return strip_tags(trim($data)); }
+function validateEmail($email) { return filter_var($email, FILTER_VALIDATE_EMAIL); }
+function validateDate($date, $format = 'Y-m-d') {
+    $d = DateTime::createFromFormat($format, $date);
+    return $d && $d->format($format) === $date;
+}
+
 date_default_timezone_set('Asia/Kolkata');
-?>

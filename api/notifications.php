@@ -18,9 +18,23 @@ if (!$userId) {
     sendResponse(false, 'Invalid or expired token');
 }
 
+// Fetch user role
+$roleStmt = $db->prepare("SELECT role FROM users WHERE id = :id");
+$roleStmt->bindParam(':id', $userId, PDO::PARAM_INT);
+$roleStmt->execute();
+$currentUser = $roleStmt->fetch(PDO::FETCH_ASSOC);
+$userRole = $currentUser['role'] ?? 'employee';
+
 switch ($method) {
     case 'GET':
-        getNotifications($db, $userId);
+        if (isset($_GET['action']) && $_GET['action'] === 'audit-logs') {
+            if ($userRole !== 'admin' && $userRole !== 'manager') {
+                sendResponse(false, 'Unauthorized access to audit logs');
+            }
+            getAuditLogs($db);
+        } else {
+            getNotifications($db, $userId);
+        }
         break;
     case 'PUT':
         if (isset($_GET['id'])) {
@@ -62,6 +76,26 @@ function getNotifications($db, $userId) {
     } catch (PDOException $e) {
         logError('Get notifications error', ['error' => $e->getMessage(), 'user_id' => $userId]);
         sendResponse(false, 'Failed to retrieve notifications');
+    }
+}
+
+/**
+ * Get Audit Logs (Recent Activity)
+ */
+function getAuditLogs($db) {
+    try {
+        $query = "SELECT al.*, u.name as user_name 
+                  FROM audit_logs al 
+                  LEFT JOIN users u ON al.user_id = u.id 
+                  ORDER BY al.created_at DESC 
+                  LIMIT 50";
+        $stmt = $db->prepare($query);
+        $stmt->execute();
+        $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        sendResponse(true, 'Audit logs retrieved successfully', $logs);
+    } catch (PDOException $e) {
+        sendResponse(false, 'Failed to retrieve audit logs');
     }
 }
 

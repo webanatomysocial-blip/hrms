@@ -24,6 +24,9 @@ switch($method) {
                 case 'change-password':
                     changePassword($db, $input);
                     break;
+                case 'refresh':
+                    refreshTokenEndpoint($db, $input);
+                    break;
                 default:
                     sendResponse(false, 'Invalid action');
             }
@@ -39,17 +42,32 @@ switch($method) {
  * Login function
  */
 function login($db, $input) {
-    if (!isset($input['email']) || !isset($input['password'])) {
-        sendResponse(false, 'Email and password are required');
+    require_once 'validator.php';
+    require_once 'middleware.php';
+    require_once 'audit_logger.php';
+    require_once 'token_service.php';
+
+    $validator = new Validator();
+    $middleware = new Middleware($db);
+    $auditLogger = new AuditLogger($db);
+    $tokenService = new TokenService($db);
+
+    // 1. Advanced Input Validation
+    $rules = [
+        'email' => ['required' => true, 'email' => true, 'max_length' => 255],
+        'password' => ['required' => true, 'min_length' => 6]
+    ];
+    if (!$validator->validate($input, $rules)) {
+        $validator->sendErrors();
     }
 
-    $email = validateInput($input['email']);
+    $email = $input['email'];
     $password = $input['password'];
+    $ipAddress = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
-    // Validate email format
-    if (!validateEmail($email)) {
-        sendResponse(false, 'Invalid email format');
-    }
+    // 2. Rate Limiting (by IP and Email)
+    $middleware->rateLimit("login_ip_$ipAddress", 5, 15);
+    $middleware->rateLimit("login_email_$email", 5, 15);
 
     try {
         $query = "SELECT id, name, email, password, role, permissions, department, position, joining_date, created_at 
@@ -61,17 +79,16 @@ function login($db, $input) {
 
         $user = $stmt->fetch();
         if ($user) {
-            
-            // ✅ FIXED: Verify password properly (Backdoor removed)
             if (password_verify($password, $user['password'])) {
                 // Remove password from response
                 unset($user['password']);
                 
-                // ✅ FIXED: Generate Secure JWT Token
-                $token = generateJWT($user['id'], $user['role']);
+                // 3. Refresh Token System
+                $accessToken = $tokenService->generateAccessToken($user['id'], $user['role']);
+                $refreshToken = $tokenService->generateRefreshToken($user['id']);
                 
-                // Log successful login
-                logError('User logged in successfully', ['user_id' => $user['id'], 'email' => $email]);
+                // 4. Audit Log
+                $auditLogger->log($user['id'], 'login_success', ['email' => $email]);
                 
                 // Parse permissions if present
                 if (isset($user['permissions']) && $user['permissions']) {
@@ -82,16 +99,17 @@ function login($db, $input) {
 
                 sendResponse(true, 'Login successful', [
                     'user' => $user,
-                    'token' => $token
+                    'token' => $accessToken,
+                    'refresh_token' => $refreshToken
                 ]);
             } else {
-                // Log failed login attempt
-                logError('Failed login attempt - invalid password', ['email' => $email]);
+                // Audit Log
+                $auditLogger->log(null, 'login_failed_invalid_password', ['email' => $email]);
                 sendResponse(false, 'Invalid credentials');
             }
         } else {
-            // Log failed login attempt
-            logError('Failed login attempt - user not found', ['email' => $email]);
+            // Audit Log
+            $auditLogger->log(null, 'login_failed_user_not_found', ['email' => $email]);
             sendResponse(false, 'Invalid credentials');
         }
     } catch(PDOException $e) {
@@ -268,5 +286,43 @@ function changePassword($db, $input) {
         logError('Change password database error', ['error' => $e->getMessage(), 'user_id' => $userId]);
         sendResponse(false, 'Failed to change password. Please try again later.');
     }
+}
+
+/**
+ * Refresh Token Endpoint
+ */
+function refreshTokenEndpoint($db, $input) {
+    require_once 'token_service.php';
+    
+    if (!isset($input['refresh_token'])) {
+        sendResponse(false, 'Refresh token is required');
+    }
+    
+    $tokenService = new TokenService($db);
+    $userId = $tokenService->verifyRefreshToken($input['refresh_token']);
+    
+    if (!$userId) {
+        sendResponse(false, 'Invalid or expired refresh token');
+    }
+    
+    // Fetch user role
+    $query = "SELECT role FROM users WHERE id = :id";
+    $stmt = $db->prepare($query);
+    $stmt->bindParam(':id', $userId, PDO::PARAM_INT);
+    $stmt->execute();
+    $user = $stmt->fetch();
+    
+    if (!$user) {
+        sendResponse(false, 'User not found');
+    }
+    
+    // Rotate tokens
+    $newAccessToken = $tokenService->generateAccessToken($userId, $user['role']);
+    $newRefreshToken = $tokenService->rotateRefreshToken($input['refresh_token']);
+    
+    sendResponse(true, 'Token refreshed successfully', [
+        'token' => $newAccessToken,
+        'refresh_token' => $newRefreshToken
+    ]);
 }
 ?>

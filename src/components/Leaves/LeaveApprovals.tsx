@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { api } from '../../lib/api';
-import { CheckCircle, XCircle, Clock, Calendar, MessageSquare } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Calendar, MessageSquare, Trash2 } from 'lucide-react';
 
 const LeaveApprovals: React.FC = () => {
   const { user, isAdmin, hasPermission } = useAuth();
@@ -73,6 +73,20 @@ const LeaveApprovals: React.FC = () => {
       alert(`Failed to ${status} leave request. Please try again.`);
     } finally {
       setLoading(null);
+    }
+  };
+
+  const handleDeleteLeaveApprovals = async (id: number) => {
+    if (!confirm('Are you sure you want to permanently delete this leave request?')) return;
+    try {
+      const res = await api.deleteLeaveRequest(id);
+      if (res.success) {
+        await refreshLeaveRequests();
+      } else {
+        alert(res.message || 'Failed to delete leave request');
+      }
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -332,6 +346,16 @@ const LeaveApprovals: React.FC = () => {
                                     <>REJECT</>
                                   )}
                                 </button>
+                                {isAdmin && (
+                                  <button
+                                    onClick={() => handleDeleteLeaveApprovals(request.id)}
+                                    className="btn btn-sm btn-outline-danger p-2 ms-1 transition-all shadow-sm"
+                                    style={{ borderRadius: 'var(--radius-md)' }}
+                                    title="Delete Request"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>

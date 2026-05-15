@@ -30,14 +30,17 @@ switch ($method) {
                 sendResponse(false, 'Unauthorized access to employee data');
             }
             
-            if (isset($_GET['summary'])) {
+            if (isset($_GET['action']) && $_GET['action'] === 'active-session') {
+                getActiveSession($db, $requestedEmployeeId);
+            } elseif (isset($_GET['summary'])) {
                 getEmployeeAttendanceSummary($db, $requestedEmployeeId);
             } else {
                 getEmployeeAttendance($db, $requestedEmployeeId);
             }
         } else {
-            // If fetching global data
-            if (isset($_GET['summary'])) {
+            if (isset($_GET['action']) && $_GET['action'] === 'active-session') {
+                getActiveSession($db, $userId);
+            } elseif (isset($_GET['summary'])) {
                 // ✅ ALLOW: Everyone can see the global summary for the dashboard
                 getAllAttendanceSummary($db);
             } elseif ($userRole === 'admin' || $userRole === 'manager') {
@@ -179,6 +182,38 @@ function getEmployeeAttendanceSummary($db, $employeeId) {
     } catch (PDOException $e) {
         logError('Get employee attendance summary error', ['error' => $e->getMessage(), 'employee_id' => $employeeId]);
         sendResponse(false, 'Failed to retrieve employee attendance summary');
+    }
+}
+
+/**
+ * Get Active Session
+ */
+function getActiveSession($db, $employeeId) {
+    $today = date('Y-m-d');
+    try {
+        $query = "SELECT id, entry_type, time, session_id FROM attendance 
+                  WHERE employee_id = :eid AND date = :d 
+                  ORDER BY id DESC 
+                  LIMIT 1";
+        $stmt = $db->prepare($query);
+        $stmt->bindParam(':eid', $employeeId, PDO::PARAM_INT);
+        $stmt->bindParam(':d', $today);
+        $stmt->execute();
+        $lastEntry = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($lastEntry && $lastEntry['entry_type'] === 'in') {
+            sendResponse(true, 'Active session found', [
+                'is_clocked_in' => true,
+                'clock_in_time' => $lastEntry['time'],
+                'session_id' => $lastEntry['session_id']
+            ]);
+        } else {
+            sendResponse(true, 'No active session', [
+                'is_clocked_in' => false
+            ]);
+        }
+    } catch (PDOException $e) {
+        sendResponse(false, 'Failed to check active session: ' . $e->getMessage());
     }
 }
 

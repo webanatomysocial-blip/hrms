@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { api } from '../../lib/api';
-import { Calendar, Plus, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Calendar, Plus, Clock, CheckCircle, XCircle, AlertCircle, Trash2 } from 'lucide-react';
 
 const LeaveRequest: React.FC = () => {
   const { user } = useAuth();
@@ -62,6 +62,20 @@ const LeaveRequest: React.FC = () => {
       alert('Failed to submit leave request. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteLeave = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this leave request?')) return;
+    try {
+      const res = await api.deleteLeaveRequest(id);
+      if (res.success) {
+        await refreshLeaveRequests();
+      } else {
+        alert(res.message || 'Failed to delete leave request');
+      }
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -403,6 +417,16 @@ const LeaveRequest: React.FC = () => {
                             >
                               {getStatusIcon(leave.status)}
                             </div>
+                            {leave.status === 'pending' && (
+                              <button
+                                onClick={() => handleDeleteLeave(leave.id)}
+                                className="btn btn-sm btn-outline-danger p-2 transition-all"
+                                style={{ borderRadius: '50%' }}
+                                title="Cancel Leave Request"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>

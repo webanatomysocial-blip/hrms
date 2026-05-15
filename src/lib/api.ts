@@ -18,9 +18,10 @@ class ApiService {
   ): Promise<ApiResponse<T>> {
     const url = `${API_BASE_URL}${endpoint}${endpoint.includes('?') ? '&' : '?'}_t=${Date.now()}`;
 
-    const defaultHeaders: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
+    const defaultHeaders: HeadersInit = {};
+    if (!(options.body instanceof FormData)) {
+      defaultHeaders['Content-Type'] = 'application/json';
+    }
 
     if (this.token) {
       defaultHeaders['Authorization'] = `Bearer ${this.token}`;
@@ -195,6 +196,22 @@ class ApiService {
     });
   }
 
+  // ANNOUNCEMENTS
+  async getAnnouncements(): Promise<ApiResponse<any[]>> {
+    return await this.requestWithTimeout<any[]>('/announcements.php');
+  }
+  async createAnnouncement(data: { title: string; content: string }): Promise<ApiResponse<any>> {
+    return await this.requestWithTimeout<any>('/announcements.php', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+  async deleteAnnouncement(id: number): Promise<ApiResponse<void>> {
+    return await this.requestWithTimeout<void>(`/announcements.php?id=${id}`, {
+      method: 'DELETE',
+    });
+  }
+
   // NOTIFICATIONS
   async getNotifications(): Promise<ApiResponse<{ notifications: any[]; unread_count: number }>> {
     return await this.requestWithTimeout<{ notifications: any[]; unread_count: number }>('/notifications.php');
@@ -205,8 +222,98 @@ class ApiService {
   async markAllNotificationsAsRead(): Promise<ApiResponse<void>> {
     return await this.requestWithTimeout<void>('/notifications.php?action=mark-all-read', { method: 'PUT' });
   }
+  // PAYROLL & EXPENSES
+  async getMySalary(): Promise<ApiResponse<{ ctc: number; basic: number; hra: number; special_allowance: number; pf_employee: number }>> {
+    return await this.requestWithTimeout<any>('/payroll.php?action=my-salary');
+  }
+
+  async setEmployeeCTC(employeeId: number, ctc: number): Promise<ApiResponse<any>> {
+    return await this.requestWithTimeout<any>('/payroll.php?action=set-ctc', {
+      method: 'POST',
+      body: JSON.stringify({ employee_id: employeeId, ctc }),
+    });
+  }
+
+  async generatePayslip(employeeId: number, month: number, year: number): Promise<ApiResponse<any>> {
+    return await this.requestWithTimeout<any>('/payroll.php?action=generate-payslip', {
+      method: 'POST',
+      body: JSON.stringify({ employee_id: employeeId, month, year }),
+    });
+  }
+
+  async getPayslips(): Promise<ApiResponse<any[]>> {
+    return await this.requestWithTimeout<any[]>('/payroll.php?action=list-payslips');
+  }
+
+  async getExpenses(): Promise<ApiResponse<any[]>> {
+    return await this.requestWithTimeout<any[]>('/expenses.php');
+  }
+
+  async submitExpense(data: any): Promise<ApiResponse<{ id: number }>> {
+    return await this.requestWithTimeout<{ id: number }>('/expenses.php', {
+      method: 'POST',
+      body: data instanceof FormData ? data : JSON.stringify(data),
+    });
+  }
+
+  async approveExpense(id: number, status: 'approved' | 'rejected'): Promise<ApiResponse<void>> {
+    return await this.requestWithTimeout<void>(`/expenses.php?id=${id}&action=approve`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async updateExpense(id: number, data: any): Promise<ApiResponse<void>> {
+    return await this.requestWithTimeout<void>(`/expenses.php?id=${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteExpense(id: number): Promise<ApiResponse<void>> {
+    return await this.requestWithTimeout<void>(`/expenses.php?id=${id}`, {
+      method: 'DELETE',
+    });
+  }
+
   async deleteNotification(id: number): Promise<ApiResponse<void>> {
     return await this.requestWithTimeout<void>(`/notifications.php?id=${id}`, { method: 'DELETE' });
+  }
+
+  // HELP DESK
+  async getTickets(): Promise<ApiResponse<any[]>> {
+    return await this.requestWithTimeout<any[]>('/helpdesk.php');
+  }
+
+  async getTicketMessages(ticketId: number): Promise<ApiResponse<any[]>> {
+    return await this.requestWithTimeout<any[]>(`/helpdesk.php?ticket_id=${ticketId}`);
+  }
+
+  async createTicket(data: { subject: string; description: string; priority: string; category: string }): Promise<ApiResponse<{ id: number }>> {
+    return await this.requestWithTimeout<{ id: number }>('/helpdesk.php', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async addTicketMessage(ticketId: number, message: string): Promise<ApiResponse<void>> {
+    return await this.requestWithTimeout<void>('/helpdesk.php?action=message', {
+      method: 'POST',
+      body: JSON.stringify({ ticket_id: ticketId, message }),
+    });
+  }
+
+  async updateTicketStatus(id: number, status: string): Promise<ApiResponse<void>> {
+    return await this.requestWithTimeout<void>(`/helpdesk.php?id=${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async deleteTicket(id: number): Promise<ApiResponse<void>> {
+    return await this.requestWithTimeout<void>(`/helpdesk.php?id=${id}`, {
+      method: 'DELETE',
+    });
   }
 }
 

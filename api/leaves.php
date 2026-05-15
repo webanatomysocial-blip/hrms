@@ -140,51 +140,141 @@ function approveLeave($db, $id, $input) {
     }
 
     $status = validateInput($input['status']);
-    $approverId = $input['approved_by'];
+    $approverId = (int)$input['approved_by'];
 
     if (!in_array($status, ['approved', 'rejected'])) {
         sendResponse(false, 'Invalid status. Use approved or rejected');
     }
 
     try {
+        $db->beginTransaction();
+
         // Get approver role
         $roleQuery = "SELECT role FROM users WHERE id = :id";
         $roleStmt = $db->prepare($roleQuery);
-        $roleStmt->bindParam(':id', $approverId);
+        $roleStmt->bindParam(':id', $approverId, PDO::PARAM_INT);
         $roleStmt->execute();
         $approver = $roleStmt->fetch();
         
         if (!$approver) {
+            $db->rollBack();
             sendResponse(false, 'Approver not found');
         }
         $role = $approver['role'];
 
+        // Fetch current leave request status and manager_id
+        $currentLeaveQuery = "SELECT status, manager_id, employee_id FROM leave_requests WHERE id = :id";
+        $currentLeaveStmt = $db->prepare($currentLeaveQuery);
+        $currentLeaveStmt->bindParam(':id', $id, PDO::PARAM_INT);
+        $currentLeaveStmt->execute();
+        $currentLeave = $currentLeaveStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$currentLeave) {
+            $db->rollBack();
+            sendResponse(false, 'Leave request not found');
+        }
+
+        $currentStatus = $currentLeave['status'];
+        $managerId = $currentLeave['manager_id'] ? (int)$currentLeave['manager_id'] : null;
+        $employeeId = (int)$currentLeave['employee_id'];
+
+        // Prevent duplicate approvals/actions
+        if ($currentStatus === 'approved' || $currentStatus === 'rejected') {
+            $db->rollBack();
+            sendResponse(false, "Leave request has already been processed (Current Status: $currentStatus)");
+        }
+
         $now = (getenv('DB_TYPE') === 'mysql') ? "NOW()" : "DATETIME('now', 'localtime')";
         
         if ($status === 'rejected') {
+            // Anyone (Admin/Manager) can reject
             $query = "UPDATE leave_requests SET status = 'rejected', status_detail = 'rejected', approved_by = :approver_id, approved_at = $now WHERE id = :id";
             $params = [':approver_id' => $approverId, ':id' => $id];
+            $stmt = $db->prepare($query);
+            $stmt->execute($params);
         } else {
             // Approval flow
-            if ($role === 'admin') {
-                $query = "UPDATE leave_requests SET status = 'approved', status_detail = 'approved', approved_by = :approver_id, approved_at = $now WHERE id = :id";
-                $params = [':approver_id' => $approverId, ':id' => $id];
-            } else if ($role === 'manager') {
+            if ($role === 'manager') {
+                // Check if this manager is assigned to the employee
+                if ($managerId !== null && $approverId !== $managerId) {
+                    $db->rollBack();
+                    sendResponse(false, 'You are not authorized to approve leaves for this employee.');
+                }
+                
+                if ($currentStatus !== 'pending') {
+                    $db->rollBack();
+                    sendResponse(false, 'Only pending leaves can be approved by a manager.');
+                }
+
                 $query = "UPDATE leave_requests SET status = 'manager_approved', status_detail = 'manager_approved', manager_approved_by = :approver_id, manager_approved_at = $now WHERE id = :id";
                 $params = [':approver_id' => $approverId, ':id' => $id];
+                $stmt = $db->prepare($query);
+                $stmt->execute($params);
+
+            } else if ($role === 'admin') {
+                // If employee has a manager, enforce multi-stage
+                if ($managerId !== null && $currentStatus !== 'manager_approved') {
+                    $db->rollBack();
+                    sendResponse(false, 'This leave must be approved by the Manager first.');
+                }
+
+                $query = "UPDATE leave_requests SET status = 'approved', status_detail = 'approved', approved_by = :approver_id, approved_at = $now WHERE id = :id";
+                $params = [':approver_id' => $approverId, ':id' => $id];
+                $stmt = $db->prepare($query);
+                $stmt->execute($params);
+
+                // Deduct Leave Balance safely
+                $leaveQuery = "SELECT employee_id, type, days, is_unpaid FROM leave_requests WHERE id = :id";
+                $leaveStmt = $db->prepare($leaveQuery);
+                $leaveStmt->bindParam(':id', $id, PDO::PARAM_INT);
+                $leaveStmt->execute();
+                $leave = $leaveStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($leave && !$leave['is_unpaid']) {
+                    $empId = $leave['employee_id'];
+                    $days = (float)$leave['days'];
+                    $type = strtolower(trim($leave['type']));
+
+                    $column = null;
+                    if (strpos($type, 'sick') !== false || $type === 'sl') $column = 'used_sl';
+                    elseif (strpos($type, 'casual') !== false || $type === 'cl') $column = 'used_cl';
+                    elseif (strpos($type, 'paid') !== false || $type === 'pl') $column = 'used_pl';
+
+                    if ($column) {
+                        $year = date('Y');
+                        $quarter = ceil(date('n') / 3);
+
+                        $checkBal = "SELECT id FROM leave_balances WHERE employee_id = :eid AND year = :y AND quarter = :q";
+                        $cbStmt = $db->prepare($checkBal);
+                        $cbStmt->execute([':eid' => $empId, ':y' => $year, ':q' => $quarter]);
+                        
+                        if (!$cbStmt->fetch()) {
+                            $initBal = "INSERT INTO leave_balances (employee_id, year, quarter, sl, cl, pl, used_sl, used_cl, used_pl) 
+                                        VALUES (:eid, :y, :q, 1.00, 1.00, 1.00, 0.00, 0.00, 0.00)";
+                            $ibStmt = $db->prepare($initBal);
+                            $ibStmt->execute([':eid' => $empId, ':y' => $year, ':q' => $quarter]);
+                        }
+
+                        $updateBal = "UPDATE leave_balances SET $column = $column + :days 
+                                      WHERE employee_id = :eid AND year = :y AND quarter = :q";
+                        $ubStmt = $db->prepare($updateBal);
+                        $ubStmt->execute([':days' => $days, ':eid' => $empId, ':y' => $year, ':q' => $quarter]);
+                    }
+                }
             } else {
+                $db->rollBack();
                 sendResponse(false, 'Only admins and managers can approve leaves');
             }
         }
         
-        $stmt = $db->prepare($query);
-        if ($stmt->execute($params)) {
-             $finalStatus = ($status === 'approved' && $role === 'manager') ? 'manager_approved' : $status;
-             sendResponse(true, "Leave request status updated to {$finalStatus} successfully");
-        } else {
-            sendResponse(false, 'Failed to update leave request status');
-        }
+        $db->commit();
+        $finalStatus = ($status === 'approved' && $role === 'manager') ? 'manager_approved' : $status;
+        sendResponse(true, "Leave request status updated to {$finalStatus} successfully");
+
     } catch(PDOException $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
         sendResponse(false, 'Failed to approve leave request: ' . $e->getMessage());
     }
 }

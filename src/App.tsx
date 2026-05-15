@@ -12,6 +12,10 @@ import Holiday from './components/Holidays/Holidays';
 import AddEmployees from './components/Employees/AddEmployee';
 import EmployeeList from './components/Employees/EmployeeList';
 import Setting from './components/Settings/Settings';
+import Payroll from './components/Payroll/Payroll';
+import Expenses from './components/Expenses/Expenses';
+import Announcements from './components/Announcements/Announcements';
+import HelpDesk from './components/HelpDesk/HelpDesk';
 
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
@@ -52,6 +56,14 @@ const AppContent: React.FC = () => {
         return <Holiday />;
       case 'employees':
         return user.role === 'admin' ? <EmployeeList onPageChange={handlePageChange} /> : <Dashboard onPageChange={handlePageChange} />;
+      case 'payroll':
+        return <Payroll />;
+      case 'expenses':
+        return <Expenses />;
+      case 'announcements':
+        return <Announcements />;
+      case 'helpdesk':
+        return <HelpDesk />;
       case 'add-employees':
         return user.role === 'admin' ? <AddEmployees /> : <Dashboard onPageChange={handlePageChange} />;
       default:

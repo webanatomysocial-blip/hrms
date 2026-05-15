@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { api } from '../../lib/api';
-import { Users, Clock, Calendar, CheckCircle, AlertCircle, Gift, ChevronRight, Activity, LogOut, UserPlus } from 'lucide-react';
+import { Users, Clock, Calendar, CheckCircle, AlertCircle, Gift, ChevronRight, Activity, LogOut, UserPlus, Megaphone } from 'lucide-react';
 import { DailyAttendanceSummary } from '../../types';
 
 const safeDate = (dateStr?: string): Date => {
@@ -32,6 +32,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
   const [todayAttendanceRecord, setTodayAttendanceRecord] = useState<DailyAttendanceSummary | null>(null);
   const [clockLoading, setClockLoading] = useState(false);
   const [clockError, setClockError] = useState<string>('');
+  const [announcements, setAnnouncements] = useState<any[]>([]);
 
   const today = new Date().toLocaleDateString('en-CA', {timeZone: 'Asia/Kolkata'});
   const currentTime = new Date().toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' });
@@ -40,7 +41,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
 
   useEffect(() => {
     checkTodayAttendance();
+    fetchAnnouncements();
   }, [attendance, user]);
+
+  const fetchAnnouncements = async () => {
+    try {
+      const res = await api.getAnnouncements();
+      if (res.success) setAnnouncements(res.data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // ✅ DYNAMIC: Live shift timer effect
   useEffect(() => {
@@ -646,6 +657,40 @@ const Dashboard: React.FC<DashboardProps> = ({ onPageChange }) => {
                   </>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* Announcements Feed Widget */}
+          <div className="premium-card mb-4" style={{ 
+            background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.6))',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(255, 255, 255, 0.05)',
+            borderRadius: '20px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+          }}>
+            <div className="premium-card-header bg-transparent border-bottom border-secondary border-opacity-10 py-4">
+              <div className="d-flex justify-content-between align-items-center">
+                <h5 className="mb-0 fw-800 text-white d-flex align-items-center">
+                  <Megaphone className="text-cyan me-2" size={20} /> Announcements
+                </h5>
+                <button onClick={() => onPageChange('announcements')} className="btn btn-link pe-0 text-cyan text-decoration-none small fw-700">View All</button>
+              </div>
+            </div>
+            <div className="premium-card-body p-4">
+              {announcements.length > 0 ? announcements.slice(0, 3).map((ann, index) => (
+                <div key={index} className="mb-4 last-mb-0 p-3 rounded-3" style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <h6 className="text-white fw-800 mb-1 small">{ann.title}</h6>
+                  <p className="text-secondary fw-500 small mb-2 line-clamp-2" style={{ fontSize: '0.8rem', lineHeight: '1.4' }}>{ann.content}</p>
+                  <div className="text-dimmed fw-600" style={{ fontSize: '0.65rem' }}>
+                    {new Date(ann.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
+                </div>
+              )) : (
+                <div className="text-center py-4">
+                  <Megaphone size={32} className="text-dimmed opacity-20 mb-2" />
+                  <p className="text-dimmed small fw-600 mb-0">No announcements yet</p>
+                </div>
+              )}
             </div>
           </div>
 
