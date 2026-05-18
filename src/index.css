@@ -465,6 +465,7 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0.85rem 1.25rem;
   border-radius: var(--radius-md) !important;
   transition: all 0.3s !important;
+  color-scheme: dark;
 }
 
 .form-select {
@@ -625,6 +626,7 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--text-primary) !important;
   padding: 0.85rem 1.25rem;
   border-radius: var(--radius-md) !important;
+  color-scheme: dark;
 }
 
 .premium-input:focus {
@@ -658,14 +660,45 @@ h1, h2, h3, h4, h5, h6 {
   background: rgba(6, 182, 212, 0.08) !important;
 }
 
-/* Make calendar icon/indicator white in date inputs */
-input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(1) brightness(1.5);
-  cursor: pointer;
-}
+/* Calendar icons are handled by color-scheme: dark in .form-control */
 
 /* Style for potential Lucide calendar icons next to inputs */
 .text-cyan.lucide-calendar, .text-indigo.lucide-calendar {
   color: var(--text-primary) !important;
   opacity: 0.9;
+}
+
+/* ===== PREMIUM MODAL SYSTEM ===== */
+.premium-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(2, 2, 5, 0.85);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
+.premium-modal-backdrop .modal-dialog {
+  margin: auto;
+  width: 100%;
+  max-width: 600px;
+}
+
+.premium-modal-backdrop .modal-lg {
+  max-width: 850px;
+}
+
+.bg-midnight-elevated {
+  background-color: var(--midnight-elevated) !important;
+}
+
+.border-midnight-border {
+  border-color: var(--midnight-border) !important;
 }

@@ -17,17 +17,89 @@ const LeaveRequest: React.FC = () => {
     reason: '',
     is_unpaid: false,
   });
+  const [balances, setBalances] = useState<any>(null);
 
   const userLeaves = leaveRequests.filter(leave => leave.employee_id === user?.id)
     .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime());
+
+  React.useEffect(() => {
+    if (user?.id) {
+      fetchUserBalances();
+    }
+  }, [user?.id, leaveRequests]);
+
+  const fetchUserBalances = async () => {
+    try {
+      const res = await api.getLeaveBalances(user?.id);
+      if (res.success && res.data && res.data.length > 0) {
+        setBalances(res.data[0]);
+      }
+    } catch (e) { console.error(e); }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user?.id) return;
 
+    const days = calculateDays(formData.start_date, formData.end_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(formData.start_date);
+    const diffDays = Math.floor((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Validation based on policy
+    if (formData.type === 'personal') { // Casual Leave
+      if (diffDays < 2) {
+        alert('Casual Leave must be applied at least 2 days prior to the leave date.');
+        return;
+      }
+      if (days > 3) {
+        alert('Casual Leave cannot be taken for more than 3 days at a stretch.');
+        return;
+      }
+      if (!formData.is_unpaid && balances && (Number(balances.cl) - Number(balances.used_cl)) < days) {
+        alert('You do not have enough Casual Leave balance. Please apply as "Unpaid Leave" (LOP).');
+        return;
+      }
+    } else if (formData.type === 'vacation') { // Privilege Leave
+      if (diffDays < 2) {
+        alert('Privilege Leave must be applied at least 2 days prior to the leave date.');
+        return;
+      }
+      if (days > 3) {
+        alert('Privilege Leave cannot be taken for more than 3 days at a stretch.');
+        return;
+      }
+      if (!formData.is_unpaid && balances && (Number(balances.pl) - Number(balances.used_pl)) < days) {
+        alert('You do not have enough Privilege Leave balance. Please apply as "Unpaid Leave" (LOP).');
+        return;
+      }
+    } else if (formData.type === 'sick') {
+      if (diffDays < -7) {
+        alert('Sick Leave must be applied within 1 week from the date of availing.');
+        return;
+      }
+      if (days > 5) {
+        alert('Medical leaves cannot exceed 5 days at a stretch according to policy.');
+        return;
+      }
+      if (!formData.is_unpaid && balances && (Number(balances.sl) - Number(balances.used_sl)) < days) {
+        alert('You do not have enough Sick Leave balance. Please apply as "Unpaid Leave" (LOP).');
+        return;
+      }
+      if (days > 2 && !formData.reason.toLowerCase().includes('medical') && !formData.reason.toLowerCase().includes('doctor')) {
+        if (!confirm('Sick leaves for more than 2 days require a medical certificate. Do you have one to provide upon request?')) return;
+      }
+    } else if (formData.type === 'maternity') {
+      const eightWeeksInDays = 8 * 7;
+      if (diffDays < eightWeeksInDays) {
+        alert('Maternity leave notice must be given at least 8 weeks prior to the start date.');
+        return;
+      }
+    }
+
     setLoading(true);
     try {
-      const days = calculateDays(formData.start_date, formData.end_date);
       const leaveData = {
         ...formData,
         employee_id: user.id,
@@ -45,6 +117,7 @@ const LeaveRequest: React.FC = () => {
           is_unpaid: false,
         });
         await refreshLeaveRequests();
+        fetchUserBalances();
         
         // Show success message
         const alertDiv = document.createElement('div');
@@ -56,6 +129,8 @@ const LeaveRequest: React.FC = () => {
         `;
         document.body.appendChild(alertDiv);
         setTimeout(() => alertDiv.remove(), 5000);
+      } else {
+        alert(response.message || 'Failed to submit leave request');
       }
     } catch (error) {
       console.error('Leave request failed:', error);
@@ -71,6 +146,7 @@ const LeaveRequest: React.FC = () => {
       const res = await api.deleteLeaveRequest(id);
       if (res.success) {
         await refreshLeaveRequests();
+        fetchUserBalances();
       } else {
         alert(res.message || 'Failed to delete leave request');
       }
@@ -86,27 +162,17 @@ const LeaveRequest: React.FC = () => {
     return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   };
 
-  const calculateLeaveAllowance = (joiningDate?: string) => {
-    if (!joiningDate) return { paid: 12, lop: 6 }; // Default to existing employee if no date
-    const join = new Date(joiningDate);
-    const now = new Date();
-    
-    // Calculate full months completed
-    let months = (now.getFullYear() - join.getFullYear()) * 12 + (now.getMonth() - join.getMonth());
-    if (now.getDate() < join.getDate()) months--;
-
-    if (months < 4) return { paid: 0, lop: 0 };
-    if (months === 4) return { paid: 1, lop: 0.5 };
-    if (months === 5) return { paid: 2, lop: 1 }; // Progression based on 'half leaves unabled' logic
-    return { paid: 12, lop: 6 };
+  const getRemainingBalance = () => {
+    if (!balances) return { sl: 0, cl: 0, pl: 0 };
+    return {
+      sl: Math.max(0, Number(balances.sl) - Number(balances.used_sl)),
+      cl: Math.max(0, Number(balances.cl) - Number(balances.used_cl)),
+      pl: Math.max(0, Number(balances.pl) - Number(balances.used_pl)),
+    };
   };
 
-  const allowance = calculateLeaveAllowance(user?.joining_date);
-  const paidTaken = userLeaves.filter(l => l.status === 'approved' && !l.is_unpaid).reduce((sum, l) => sum + l.days, 0);
-  const lopTaken = userLeaves.filter(l => l.status === 'approved' && l.is_unpaid).reduce((sum, l) => sum + l.days, 0);
-  
-  const remainingPaid = Math.max(0, allowance.paid - paidTaken);
-  const remainingLop = Math.max(0, allowance.lop - lopTaken);
+  const remaining = getRemainingBalance();
+  const totalRemaining = remaining.sl + remaining.cl + remaining.pl;
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -152,9 +218,9 @@ const LeaveRequest: React.FC = () => {
             <div className="premium-stat-icon" style={{ background: 'rgba(99,102,241,0.1)', color: 'var(--accent-indigo)' }}>
               <Calendar size={24} />
             </div>
-            <div className="premium-stat-number">{remainingPaid} / {allowance.paid}</div>
-            <div className="premium-stat-label">Remaining Paid Leaves</div>
-            <div className="mt-2 text-dimmed small fw-600">{paidTaken} days taken</div>
+            <div className="premium-stat-number">{totalRemaining.toFixed(1)}</div>
+            <div className="premium-stat-label">Total Paid Balance</div>
+            <div className="mt-2 text-dimmed small fw-600">SL: {remaining.sl} | CL: {remaining.cl} | PL: {remaining.pl}</div>
           </div>
         </div>
         <div className="col-lg-3 col-md-6 mb-4">
@@ -162,9 +228,11 @@ const LeaveRequest: React.FC = () => {
             <div className="premium-stat-icon" style={{ background: 'rgba(6,182,212,0.1)', color: 'var(--accent-cyan)' }}>
               <AlertCircle size={24} />
             </div>
-            <div className="premium-stat-number">{remainingLop} / {allowance.lop}</div>
-            <div className="premium-stat-label">Remaining LOP Balance</div>
-            <div className="mt-2 text-dimmed small fw-600">{lopTaken} days applied</div>
+            <div className="premium-stat-number">
+              {leaveRequests.filter(l => l.employee_id === user?.id && l.status === 'approved' && l.is_unpaid).reduce((sum, l) => sum + l.days, 0)}
+            </div>
+            <div className="premium-stat-label">Unpaid (LOP) Days</div>
+            <div className="mt-2 text-dimmed small fw-600">Discretionary leave used</div>
           </div>
         </div>
         <div className="col-lg-3 col-md-6 mb-4">
@@ -216,12 +284,17 @@ const LeaveRequest: React.FC = () => {
                         className="form-select bg-opacity-05 border-secondary border-opacity-10 py-3 text-white"
                         style={{ borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)' }}
                       >
-                        <option value="sick" className="bg-dark">Sick Leave</option>
-                        <option value="vacation" className="bg-dark">Vacation / Personal Leave</option>
-                        <option value="personal" className="bg-dark">Personal / Emergency Leave</option>
+                        <option value="sick" className="bg-dark">Sick Leave (Max 5 days)</option>
+                        <option value="vacation" className="bg-dark">Privilege Leave (Max 3 days)</option>
+                        <option value="personal" className="bg-dark">Casual Leave (Max 3 days)</option>
                         <option value="maternity" className="bg-dark">Maternity Leave</option>
                         <option value="paternity" className="bg-dark">Paternity Leave</option>
                       </select>
+                      <div className="mt-2 text-dimmed x-small fw-500">
+                        {formData.type === 'sick' && "* Can be applied within 7 days of availing."}
+                        {(formData.type === 'personal' || formData.type === 'vacation') && "* Must be applied 2 days in advance."}
+                        {formData.type === 'maternity' && "* 8 weeks prior notice required."}
+                      </div>
                     </div>
                     <div className="col-md-6">
                       <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">Total Days</label>
@@ -244,7 +317,12 @@ const LeaveRequest: React.FC = () => {
                         }))}
                         className="form-control bg-opacity-05 border-secondary border-opacity-10 py-3 text-white"
                         style={{ borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)' }}
-                        min={new Date().toISOString().split('T')[0]}
+                        min={formData.type === 'sick' 
+                          ? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] 
+                          : formData.type === 'maternity'
+                            ? new Date(Date.now() + 56 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                            : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                        }
                       />
                     </div>
                     <div className="col-md-6">

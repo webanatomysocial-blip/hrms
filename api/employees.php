@@ -64,9 +64,11 @@ switch($method) {
 function getEmployees($db) {
     try {
         $query = "SELECT u1.id, u1.name, u1.email, u1.role, u1.permissions, u1.manager_id, u2.name as manager_name, 
-                         u1.department, u1.position, u1.joining_date, u1.created_at, u1.active 
+                         u1.department, u1.position, u1.joining_date, u1.created_at, u1.active,
+                         ss.ctc, ss.basic, ss.hra, ss.special_allowance
                   FROM users u1 
                   LEFT JOIN users u2 ON u1.manager_id = u2.id
+                  LEFT JOIN salary_structures ss ON u1.id = ss.employee_id
                   ORDER BY u1.created_at DESC";
         $stmt = $db->prepare($query);
         $stmt->execute();
@@ -89,9 +91,11 @@ function getEmployees($db) {
 function getEmployee($db, $id) {
     try {
         $query = "SELECT u1.id, u1.name, u1.email, u1.role, u1.permissions, u1.manager_id, u2.name as manager_name,
-                         u1.department, u1.position, u1.joining_date, u1.created_at, u1.active 
+                         u1.department, u1.position, u1.joining_date, u1.created_at, u1.active,
+                         ss.ctc, ss.basic, ss.hra, ss.special_allowance
                   FROM users u1 
                   LEFT JOIN users u2 ON u1.manager_id = u2.id
+                  LEFT JOIN salary_structures ss ON u1.id = ss.employee_id
                   WHERE u1.id = :id";
         $stmt = $db->prepare($query);
         $stmt->bindParam(':id', $id);

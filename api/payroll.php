@@ -105,6 +105,8 @@ function calculateAndSaveInternal($db, $empId, $month, $year, $ctcOverride = nul
             $db->exec("ALTER TABLE monthly_payroll ADD COLUMN basic_monthly FLOAT DEFAULT 0");
             $db->exec("ALTER TABLE monthly_payroll ADD COLUMN hra_monthly FLOAT DEFAULT 0");
             $db->exec("ALTER TABLE monthly_payroll ADD COLUMN special_allowance FLOAT DEFAULT 0");
+            $db->exec("ALTER TABLE monthly_payroll ADD COLUMN pf_deduction FLOAT DEFAULT 0");
+            $db->exec("ALTER TABLE monthly_payroll ADD COLUMN pt_deduction FLOAT DEFAULT 0");
         } catch (PDOException $e) {
             // columns probably exist
         }
@@ -188,13 +190,14 @@ function calculateAndSaveInternal($db, $empId, $month, $year, $ctcOverride = nul
         $reimbursement = round((float)($expStmt->fetchColumn() ?? 0), 2);
 
         // 6. Net Pay
-        $totalDeductions = $lopDeduction + $absentDeduction + $lateDeduction + 200; // 200 Professional Tax
+        $ptDeduction = 200.00;
+        $totalDeductions = $lopDeduction + $absentDeduction + $lateDeduction + $pfMonthly + $ptDeduction;
         $netPay          = round($monthlyGross - $totalDeductions + $reimbursement, 2);
 
         // 7. Upsert monthly_payroll (store full breakdown)
-        $cols = "employee_id, month, year, lop_days, lop_deduction, absent_days, absent_deduction, late_count, late_deduction, expense_reimbursement, net_salary, ctc, monthly_gross, basic_monthly, hra_monthly, special_allowance";
-        $vals = ":eid, :m, :y, :lop, :lop_ded, :abs, :abs_ded, :late, :late_ded, :exp, :net, :ctc, :gross, :basic, :hra, :special";
-        $upd  = "lop_days=:lop, lop_deduction=:lop_ded, absent_days=:abs, absent_deduction=:abs_ded, late_count=:late, late_deduction=:late_ded, expense_reimbursement=:exp, net_salary=:net, ctc=:ctc, monthly_gross=:gross, basic_monthly=:basic, hra_monthly=:hra, special_allowance=:special";
+        $cols = "employee_id, month, year, lop_days, lop_deduction, absent_days, absent_deduction, late_count, late_deduction, expense_reimbursement, net_salary, ctc, monthly_gross, basic_monthly, hra_monthly, special_allowance, pf_deduction, pt_deduction";
+        $vals = ":eid, :m, :y, :lop, :lop_ded, :abs, :abs_ded, :late, :late_ded, :exp, :net, :ctc, :gross, :basic, :hra, :special, :pf, :pt";
+        $upd  = "lop_days=:lop, lop_deduction=:lop_ded, absent_days=:abs, absent_deduction=:abs_ded, late_count=:late, late_deduction=:late_ded, expense_reimbursement=:exp, net_salary=:net, ctc=:ctc, monthly_gross=:gross, basic_monthly=:basic, hra_monthly=:hra, special_allowance=:special, pf_deduction=:pf, pt_deduction=:pt";
 
         $payQ = DB_TYPE === 'sqlite'
             ? "INSERT INTO monthly_payroll ($cols) VALUES ($vals) ON CONFLICT(employee_id,month,year) DO UPDATE SET $upd"
@@ -212,7 +215,9 @@ function calculateAndSaveInternal($db, $empId, $month, $year, $ctcOverride = nul
             ':gross'   => $monthlyGross,
             ':basic'   => $basicMonthly,
             ':hra'     => $hraMonthly,
-            ':special' => $saMonthly
+            ':special' => $saMonthly,
+            ':pf'      => $pfMonthly,
+            ':pt'      => $ptDeduction
         ]);
         return true;
     } catch (PDOException $e) {
@@ -262,6 +267,8 @@ function listPayslips($db, $userId, $role) {
             $db->exec("ALTER TABLE monthly_payroll ADD COLUMN basic_monthly FLOAT DEFAULT 0");
             $db->exec("ALTER TABLE monthly_payroll ADD COLUMN hra_monthly FLOAT DEFAULT 0");
             $db->exec("ALTER TABLE monthly_payroll ADD COLUMN special_allowance FLOAT DEFAULT 0");
+            $db->exec("ALTER TABLE monthly_payroll ADD COLUMN pf_deduction FLOAT DEFAULT 0");
+            $db->exec("ALTER TABLE monthly_payroll ADD COLUMN pt_deduction FLOAT DEFAULT 0");
         } catch (PDOException $e) {
             // columns probably exist
         }

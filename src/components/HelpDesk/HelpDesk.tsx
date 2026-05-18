@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
-import { LifeBuoy, Plus, MessageSquare, AlertCircle, CheckCircle, Clock, ChevronLeft, Send } from 'lucide-react';
+import { LifeBuoy, Plus, MessageSquare, AlertCircle, CheckCircle, Clock, ChevronLeft, Send, Trash2 } from 'lucide-react';
 
 const HelpDesk: React.FC = () => {
   const { user, isAdmin, isManager } = useAuth();
@@ -99,24 +99,6 @@ const HelpDesk: React.FC = () => {
     fetchMessages(ticket.id);
   };
 
-  const getPriorityColor = (p: string) => {
-    switch (p) {
-      case 'high': return 'text-danger bg-danger bg-opacity-10';
-      case 'medium': return 'text-warning bg-warning bg-opacity-10';
-      case 'low': return 'text-info bg-info bg-opacity-10';
-      default: return 'text-secondary bg-secondary bg-opacity-10';
-    }
-  };
-
-  const getStatusIcon = (s: string) => {
-    switch (s) {
-      case 'open': return <AlertCircle size={16} className="text-warning" />;
-      case 'in_progress': return <Clock size={16} className="text-info" />;
-      case 'resolved': return <CheckCircle size={16} className="text-success" />;
-      default: return <MessageSquare size={16} className="text-secondary" />;
-    }
-  };
-
   return (
     <div className="container-fluid fade-in px-0 py-4">
       {/* Header */}
@@ -129,13 +111,15 @@ const HelpDesk: React.FC = () => {
             <p className="text-secondary fw-600 mb-0">Get support, report issues, or track your ongoing requests.</p>
           </div>
           {view === 'list' ? (
-            <button 
-              onClick={() => setView('create')} 
-              className="btn btn-premium-add d-flex align-items-center px-4 py-3 shadow-glow-cyan"
-              style={{ borderRadius: '12px' }}
-            >
-              <Plus size={20} className="me-2" /> New Ticket
-            </button>
+            !isAdmin && (
+              <button 
+                onClick={() => setView('create')} 
+                className="btn btn-premium-add d-flex align-items-center px-4 py-3 shadow-glow-cyan"
+                style={{ borderRadius: '12px' }}
+              >
+                <Plus size={20} className="me-2" /> New Ticket
+              </button>
+            )
           ) : (
             <button 
               onClick={() => { setView('list'); setSelectedTicket(null); }} 
@@ -151,89 +135,82 @@ const HelpDesk: React.FC = () => {
       <div className="row">
         <div className="col-12">
           {view === 'list' && (
-            <div className="premium-table-container shadow-lg fade-in">
+            <div className="premium-card shadow-lg fade-in" style={{ background: 'var(--midnight-card)' }}>
               {loading ? (
                 <div className="text-center py-5">
                   <div className="premium-spinner mx-auto mb-3"></div>
                   <p className="text-dimmed">Fetching your tickets...</p>
                 </div>
               ) : tickets.length === 0 ? (
-                <div className="text-center py-5">
+                <div className="text-center py-5 px-4">
                   <div className="mb-4 opacity-20">
                     <LifeBuoy size={80} className="text-cyan mx-auto" />
                   </div>
                   <h4 className="text-white fw-800">No Tickets Yet</h4>
-                  <p className="text-dimmed mb-4">Need help? Create your first support ticket to get started.</p>
-                  <button onClick={() => setView('create')} className="btn btn-premium-cyan">
-                    <Plus size={18} className="me-2" /> Create First Ticket
-                  </button>
+                  <p className="text-dimmed mb-4">{isAdmin ? 'No tickets have been submitted yet.' : 'Need help? Create your first support ticket to get started.'}</p>
+                  {!isAdmin && (
+                    <button onClick={() => setView('create')} className="btn btn-premium-cyan px-5">
+                      <Plus size={18} className="me-2" /> Create First Ticket
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="table-responsive">
-                  <table className="premium-table table-hover align-middle mb-0">
-                    <thead>
+                  <table className="table table-dark table-hover align-middle mb-0">
+                    <thead className="border-bottom border-secondary border-opacity-10">
                       <tr>
-                        <th>Ticket Details</th>
-                        {(isAdmin || isManager) && <th>Requester</th>}
-                        <th>Category</th>
-                        <th>Priority</th>
-                        <th>Status</th>
-                        <th className="text-end">Action</th>
+                        <th className="px-4 py-3 text-dimmed small fw-700">Ticket Details</th>
+                        {(isAdmin || isManager) && <th className="px-4 py-3 text-dimmed small fw-700">Requester</th>}
+                        <th className="px-4 py-3 text-dimmed small fw-700 d-none d-md-table-cell">Category</th>
+                        <th className="px-4 py-3 text-dimmed small fw-700">Status</th>
+                        <th className="px-4 py-3 text-dimmed small fw-700 text-end">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {tickets.map(ticket => (
-                        <tr key={ticket.id} onClick={() => openTicket(ticket)} style={{ cursor: 'pointer' }}>
-                          <td>
+                        <tr key={ticket.id} onClick={() => openTicket(ticket)} className="cursor-pointer border-bottom border-secondary border-opacity-05">
+                          <td className="px-4 py-3">
                             <div className="d-flex align-items-center">
-                              <div className="ticket-icon me-3 d-flex align-items-center justify-content-center" 
-                                   style={{ width: '40px', height: '40px', background: 'rgba(6, 182, 212, 0.05)', borderRadius: '10px', color: 'var(--accent-cyan)' }}>
-                                <MessageSquare size={18} />
+                              <div className="ticket-icon me-3 d-none d-sm-flex align-items-center justify-content-center" 
+                                   style={{ width: '36px', height: '36px', background: 'rgba(6, 182, 212, 0.05)', borderRadius: '10px', color: 'var(--accent-cyan)' }}>
+                                <MessageSquare size={16} />
                               </div>
                               <div>
-                                <div className="fw-700 text-white mb-1">{ticket.subject}</div>
-                                <div className="text-dimmed x-small fw-600">ID: #{ticket.id} • {new Date(ticket.created_at).toLocaleDateString()}</div>
+                                <div className="fw-700 text-white small mb-0">{ticket.subject}</div>
+                                <div className="text-dimmed x-small fw-600">#{ticket.id} • {new Date(ticket.created_at).toLocaleDateString()}</div>
                               </div>
                             </div>
                           </td>
                           {(isAdmin || isManager) && (
-                            <td>
+                            <td className="px-4 py-3">
                               <div className="d-flex align-items-center">
-                                <div className="user-avatar-sm me-2">{ticket.employee_name?.charAt(0)}</div>
-                                <div className="fw-600 small text-secondary">{ticket.employee_name}</div>
+                                <div className="user-avatar-sm me-2" style={{ width: '24px', height: '24px', fontSize: '0.6rem' }}>{ticket.employee_name?.charAt(0)}</div>
+                                <div className="fw-600 small text-secondary d-none d-sm-block">{ticket.employee_name}</div>
                               </div>
                             </td>
                           )}
-                          <td>
-                            <span className="badge-premium badge-premium-indigo">{ticket.category.replace('_', ' ')}</span>
+                          <td className="px-4 py-3 d-none d-md-table-cell">
+                            <span className="badge-premium badge-premium-indigo" style={{ fontSize: '0.6rem' }}>{ticket.category.replace('_', ' ')}</span>
                           </td>
-                          <td>
-                            <span className={`badge-premium ${
-                              ticket.priority === 'high' ? 'badge-premium-danger' : 
-                              ticket.priority === 'medium' ? 'badge-premium-warning' : 'badge-premium-cyan'
-                            }`}>
-                              {ticket.priority}
-                            </span>
-                          </td>
-                          <td>
+                          <td className="px-4 py-3">
                             <div className="d-flex align-items-center gap-2">
                               <div className={`status-dot ${ticket.status}`} style={{ 
-                                width: '8px', 
-                                height: '8px', 
+                                width: '6px', 
+                                height: '6px', 
                                 borderRadius: '50%',
                                 backgroundColor: ticket.status === 'resolved' ? 'var(--success)' : 
                                                ticket.status === 'in_progress' ? 'var(--info)' : 'var(--warning)',
-                                boxShadow: `0 0 10px ${ticket.status === 'resolved' ? 'var(--success)' : 
+                                boxShadow: `0 0 8px ${ticket.status === 'resolved' ? 'var(--success)' : 
                                                      ticket.status === 'in_progress' ? 'var(--info)' : 'var(--warning)'}`
                               }}></div>
-                              <span className="text-capitalize small fw-700" style={{ color: ticket.status === 'resolved' ? 'var(--success)' : 'var(--text-primary)' }}>
+                              <span className="text-capitalize x-small fw-700 text-white opacity-80">
                                 {ticket.status.replace('_', ' ')}
                               </span>
                             </div>
                           </td>
-                          <td className="text-end">
-                            <button className="btn btn-sm btn-premium-secondary px-3">
-                              View Details
+                          <td className="px-4 py-3 text-end">
+                            <button className="btn btn-sm btn-outline-secondary py-1 px-3 fw-700" style={{ fontSize: '0.65rem' }}>
+                              View
                             </button>
                           </td>
                         </tr>
@@ -383,9 +360,9 @@ const HelpDesk: React.FC = () => {
                         <div key={msg.id} className={`d-flex mb-4 ${msg.sender_id === user?.id ? 'flex-row-reverse' : ''}`}>
                           <div className={`${msg.sender_id === user?.id ? 'ms-3' : 'me-3'} mt-1`}>
                              <div className="user-avatar-sm" style={{ 
-                               background: msg.sender_id === user?.id ? 'var(--accent-cyan)' : 'var(--midnight-elevated)', 
-                               color: msg.sender_id === user?.id ? '#000' : 'var(--accent-cyan)',
-                               border: '1px solid var(--midnight-border-bright)'
+                                background: msg.sender_id === user?.id ? 'var(--accent-cyan)' : 'var(--midnight-elevated)', 
+                                color: msg.sender_id === user?.id ? '#000' : 'var(--accent-cyan)',
+                                border: '1px solid var(--midnight-border-bright)'
                              }}>
                                 {msg.sender_name?.charAt(0) || 'A'}
                              </div>
@@ -491,6 +468,26 @@ const HelpDesk: React.FC = () => {
                           <span>Resolve Ticket</span>
                           <CheckCircle size={16} />
                         </button>
+                        {isAdmin && (
+                          <button 
+                            onClick={async () => {
+                              if (confirm('Are you sure you want to permanently delete this ticket?')) {
+                                try {
+                                  const res = await api.deleteTicket(selectedTicket.id);
+                                  if (res.success) {
+                                    setView('list');
+                                    fetchTickets();
+                                  }
+                                } catch (e) { console.error(e); }
+                              }
+                            }} 
+                            className="btn btn-outline-danger d-flex justify-content-between align-items-center mt-2"
+                            style={{ borderRadius: '10px', fontSize: '0.75rem' }}
+                          >
+                            <span>Delete Ticket</span>
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}

@@ -182,9 +182,9 @@ function deleteExpense($db, $id, $userId, $role) {
     }
 
     try {
-        // Employees can only delete their own PENDING expenses
+        // Employees can only delete their own unapproved expenses
         if ($role !== 'admin' && $role !== 'manager') {
-            $query = "DELETE FROM expenses WHERE id = :id AND employee_id = :eid AND status = 'pending'";
+            $query = "DELETE FROM expenses WHERE id = :id AND employee_id = :eid AND status != 'approved'";
             $stmt = $db->prepare($query);
             $stmt->execute([':id' => (int)$id, ':eid' => $userId]);
         } else {

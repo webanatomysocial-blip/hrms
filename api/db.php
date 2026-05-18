@@ -118,4 +118,9 @@ function validateDate($date, $format = 'Y-m-d') {
     return $d && $d->format($format) === $date;
 }
 
+function logError($message, $context = []) {
+    $ctx = !empty($context) ? " | Context: " . json_encode($context) : "";
+    error_log("[HRMS_LOG] " . $message . $ctx);
+}
+
 date_default_timezone_set('Asia/Kolkata');

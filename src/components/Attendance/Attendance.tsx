@@ -4,42 +4,41 @@ import { useData } from "../../context/DataContext";
 import { api } from "../../lib/api";
 import {
   Clock,
-  Calendar,
   CheckCircle,
-  XCircle,
-  AlertCircle,
   RefreshCw,
   Users,
-  Filter,
+  TrendingUp,
+  Activity,
+  History,
+  Edit3
 } from "lucide-react";
 import { Employee, DailyAttendanceSummary } from "../../types";
 
 const Attendance: React.FC = () => {
-  const { user, isAdmin, isManager, hasPermission } = useAuth();
+  const { user, isAdmin, isManager } = useAuth();
   const {
     employees,
     attendance: globalAttendance,
     userEntries,
     isClockedIn,
     loading: globalLoading,
-    error: globalError,
     refreshAttendance,
     refreshUserEntries,
   } = useData();
 
   const [pageLoading, setPageLoading] = useState(true);
   const [clockLoading, setClockLoading] = useState(false);
-  const [localError, setLocalError] = useState<string>("");
   const [workingHours, setWorkingHours] = useState<number>(0);
   const [presenceFilter, setPresenceFilter] = useState("");
   const [employeeFilter, setEmployeeFilter] = useState<number | null>(null);
 
   const today = new Date().toLocaleDateString('en-CA', {timeZone: 'Asia/Kolkata'});
-  const now = new Date();
-  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-CA', {timeZone: 'Asia/Kolkata'});
   
-  const [startDate, setStartDate] = useState(firstDayOfMonth);
+  const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
+
+  const [editingRecord, setEditingRecord] = useState<any | null>(null);
+  const [editData, setEditData] = useState({status: '', first_clock_in: '', last_clock_out: '', total_working_hours: 0});
 
   const safeToFixed = (value: any, decimals: number = 1): string => {
     const num = Number(value) || 0;
@@ -60,7 +59,6 @@ const Attendance: React.FC = () => {
       initializeAttendance();
     } else {
       setPageLoading(false);
-      setLocalError("User not authenticated");
     }
   }, [user, startDate, endDate]);
 
@@ -77,7 +75,7 @@ const Attendance: React.FC = () => {
     try {
       await Promise.all([refreshAttendance(startDate, endDate), refreshUserEntries()]);
     } catch (error) {
-      setLocalError("Failed to load attendance data");
+      console.error("Failed to load attendance data", error);
     } finally {
       setPageLoading(false);
     }
@@ -88,32 +86,18 @@ const Attendance: React.FC = () => {
     if (!user?.id || clockLoading) return;
 
     setClockLoading(true);
-    setLocalError("");
 
     try {
       const response = await api.clockIn(user.id);
 
       if (response.success) {
-        // Show success alert
-        const alertDiv = document.createElement("div");
-        alertDiv.className =
-          "alert alert-success alert-dismissible fade show position-fixed";
-        alertDiv.style.cssText =
-          "top: 20px; right: 20px; z-index: 9999; min-width: 300px;";
-        alertDiv.innerHTML = `
-          <strong>Success!</strong> Clocked in at ${response.data?.time || "now"}
-          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        document.body.appendChild(alertDiv);
-        setTimeout(() => alertDiv.remove(), 5000);
-
         // Refresh data
         await Promise.all([refreshAttendance(), refreshUserEntries()]);
       } else {
-        setLocalError(response.message || "Clock in failed");
+        alert(response.message || "Clock in failed");
       }
     } catch (error: any) {
-      setLocalError(error.message || "Clock in failed. Please try again.");
+      alert(error.message || "Clock in failed. Please try again.");
     } finally {
       setClockLoading(false);
     }
@@ -123,34 +107,19 @@ const Attendance: React.FC = () => {
     if (!user?.id || clockLoading) return;
 
     setClockLoading(true);
-    setLocalError("");
 
     try {
       const response = await api.clockOut(user.id);
 
       if (response.success) {
         setWorkingHours(safeNumber(response.data?.working_hours));
-
-        // Show success alert
-        const alertDiv = document.createElement("div");
-        alertDiv.className =
-          "alert alert-success alert-dismissible fade show position-fixed";
-        alertDiv.style.cssText =
-          "top: 20px; right: 20px; z-index: 9999; min-width: 300px;";
-        alertDiv.innerHTML = `
-          <strong>Success!</strong> Clocked out at ${response.data?.time || "now"}. Hours: ${response.data?.working_hours || 0}h
-          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        document.body.appendChild(alertDiv);
-        setTimeout(() => alertDiv.remove(), 5000);
-
         // Refresh data
         await Promise.all([refreshAttendance(), refreshUserEntries()]);
       } else {
-        setLocalError(response.message || "Clock out failed");
+        alert(response.message || "Clock out failed");
       }
     } catch (error: any) {
-      setLocalError(error.message || "Clock out failed. Please try again.");
+      alert(error.message || "Clock out failed. Please try again.");
     } finally {
       setClockLoading(false);
     }
@@ -160,21 +129,89 @@ const Attendance: React.FC = () => {
     setPageLoading(true);
     try {
       await Promise.all([refreshAttendance(startDate, endDate), refreshUserEntries()]);
-      setLocalError("");
     } catch (error) {
-      setLocalError("Refresh failed.");
+      console.error("Refresh failed.", error);
     } finally {
       setPageLoading(false);
     }
+  };
+
+  useEffect(() => {
+    if (editData.first_clock_in && editData.last_clock_out) {
+      const [h1, m1] = editData.first_clock_in.split(':').map(Number);
+      const [h2, m2] = editData.last_clock_out.split(':').map(Number);
+      
+      let diffMinutes = (h2 * 60 + m2) - (h1 * 60 + m1);
+      if (diffMinutes < 0) diffMinutes = 0;
+      
+      const hours = diffMinutes / 60;
+      let status = 'present';
+      
+      // Dynamic Status Rules
+      if (hours < 4) {
+        status = 'half_day';
+      } else if (h1 > 9 || (h1 === 9 && m1 > 15)) {
+        status = 'late';
+      } else {
+        status = 'present';
+      }
+
+      setEditData(prev => ({ 
+        ...prev, 
+        total_working_hours: parseFloat(hours.toFixed(2)),
+        status: status
+      }));
+    } else if (!editData.first_clock_in && !editData.last_clock_out) {
+      setEditData(prev => ({ ...prev, status: 'absent', total_working_hours: 0 }));
+    }
+  }, [editData.first_clock_in, editData.last_clock_out]);
+
+  const handleUpdateAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRecord) return;
+
+    try {
+      const payload: any = { ...editData };
+      if (editingRecord.id > 0) {
+        payload.id = editingRecord.id;
+      } else {
+        payload.employee_id = editingRecord.employee_id;
+        payload.date = editingRecord.date;
+      }
+
+      const response = await api.updateAttendance(payload);
+
+      if (response.success) {
+        setEditingRecord(null);
+        await refreshAttendance(startDate, endDate);
+      } else {
+        alert(response.message || 'Failed to update attendance');
+      }
+    } catch (error: any) {
+      alert(error.message || 'Failed to update attendance');
+    }
+  };
+
+  const openEditRow = (record: any) => {
+    if (editingRecord?.employee_id === record.employee_id && editingRecord?.date === record.date) {
+      setEditingRecord(null);
+      return;
+    }
+    setEditingRecord(record);
+    setEditData({
+      status: record.status || 'present',
+      first_clock_in: record.first_clock_in || '',
+      last_clock_out: record.last_clock_out || '',
+      total_working_hours: Number(record.total_working_hours) || 0
+    });
   };
 
   const getDatesInRange = (start: string, end: string) => {
     const dates = [];
     let curr = new Date(start);
     const last = new Date(end);
-    // Safety cap to avoid infinite loops or massive arrays
     let iterations = 0;
-    while (curr <= last && iterations < 93) { // 3 months max
+    while (curr <= last && iterations < 93) {
       dates.push(curr.toISOString().split('T')[0]);
       curr.setDate(curr.getDate() + 1);
       iterations++;
@@ -216,7 +253,6 @@ const Attendance: React.FC = () => {
           }
         });
       } else {
-        // Employee view: only show own records or virtual absent
         const empId = user?.id;
         const record = globalAttendance.find((r: DailyAttendanceSummary) => r.employee_id === empId && r.date === dateStr);
         if (record) {
@@ -237,442 +273,274 @@ const Attendance: React.FC = () => {
       }
     });
 
-    return result;
+    return result.sort((a, b) => {
+      if (a.date !== b.date) return b.date.localeCompare(a.date);
+      if (!a.first_clock_in) return 1;
+      if (!b.first_clock_in) return -1;
+      return a.first_clock_in.localeCompare(b.first_clock_in);
+    });
   })();
 
   if (pageLoading || globalLoading) {
     return (
-      <div className="container-fluid">
-        <div
-          className="d-flex justify-content-center align-items-center"
-          style={{ minHeight: "60vh" }}
-        >
-          <div className="text-center">
-            <div className="premium-spinner mb-3"></div>
-            <h5 className="text-muted">Loading attendance data...</h5>
-          </div>
-        </div>
+      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: "60vh" }}>
+        <div className="premium-spinner"></div>
       </div>
     );
   }
 
-  if (localError || globalError) {
-    return (
-      <div className="container-fluid">
-        <div className="alert alert-warning d-flex align-items-center shadow-sm">
-          <AlertCircle className="me-2" />
-          {localError || globalError}
-          <button
-            onClick={handleManualRefresh}
-            className="btn btn-sm btn-outline-secondary ms-auto"
-          >
-            <RefreshCw size={14} className="me-1" /> Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'present': return <span className="badge-premium badge-premium-success">Present</span>;
+      case 'late': return <span className="badge-premium badge-premium-warning">Late</span>;
+      case 'half_day': return <span className="badge-premium badge-premium-indigo">Half Day</span>;
+      default: return <span className="badge-premium badge-premium-danger">Absent</span>;
+    }
+  };
 
   return (
     <div className="container-fluid fade-in px-0">
+      {/* Header */}
       <div className="row mb-5">
         <div className="col-12">
           <div className="d-flex justify-content-between align-items-end">
             <div>
-              <h1 className="display-5 fw-800 text-white mb-2">Attendance</h1>
-              <p className="text-secondary fw-500 mb-0">Track daily attendance and working hours</p>
+              <h1 className="display-5 fw-800 text-white mb-2">Attendance Console</h1>
+              <p className="text-secondary fw-500 mb-0">Monitor workforce presence and daily operational hours</p>
             </div>
-            {(isAdmin || isManager || hasPermission('manage_attendance')) && (
-              <button onClick={handleManualRefresh} className="btn btn-premium-secondary d-flex align-items-center px-4 py-2">
-                <RefreshCw size={16} className={`me-2 ${globalLoading ? 'spin' : ''}`} />
-                Refresh Attendance
-              </button>
-            )}
+            <button onClick={handleManualRefresh} className="btn btn-premium-secondary d-flex align-items-center px-4 py-2">
+              <RefreshCw size={16} className={`me-2 ${globalLoading ? 'spin' : ''}`} />
+              Sync Data
+            </button>
           </div>
         </div>
       </div>
 
-      {(isAdmin || isManager || hasPermission('manage_attendance')) && (
-        <>
-          {isManager && (
-            <div className="row justify-content-center mb-5">
-              <div className="col-xl-8 col-lg-10">
-                <div className="premium-card border-0 shadow-lg overflow-hidden" style={{ background: 'var(--midnight-card)' }}>
+      <div className="row g-4">
+        {/* Stats Section for Employee / Manager */}
+        {!isAdmin && (
+          <div className="col-12 mb-2">
+            <div className="row g-4">
+              <div className="col-xl-4">
+                <div className="premium-card overflow-hidden h-100" style={{ background: 'var(--midnight-card)' }}>
                   <div className="premium-card-body p-0">
-                    <div className="row g-0">
-                      <div className="col-md-5 p-4 d-flex flex-column justify-content-center align-items-center border-end border-secondary border-opacity-10" style={{ background: 'var(--midnight-elevated)' }}>
-                        <div 
-                          className={`pulse-container mb-3 ${isClockedIn ? 'active' : ''}`}
-                          style={{ 
-                            width: '80px', 
-                            height: '80px', 
-                            borderRadius: '50%', 
-                            background: isClockedIn ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
-                            border: `2px solid ${isClockedIn ? 'var(--success)' : 'rgba(255,255,255,0.1)'}`,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            position: 'relative'
-                          }}
-                        >
-                          {isClockedIn && (
-                            <div className="pulse-ring" style={{ border: '2px solid var(--success)' }} />
-                          )}
-                          <Clock size={32} className={isClockedIn ? 'text-success' : 'text-dimmed'} />
-                        </div>
-                        <div className="text-center">
-                          <h5 className="text-white fw-800 mb-1">{isClockedIn ? 'Clocked In' : 'Clocked Out'}</h5>
-                          <p className="text-white opacity-50 small fw-700 text-uppercase mb-0 tracking-wider" style={{ fontSize: '0.6rem' }}>Current Status</p>
-                        </div>
+                    <div className="d-flex flex-column align-items-center justify-content-center p-5 text-center" style={{ background: 'var(--midnight-elevated)' }}>
+                      <div className={`pulse-container mb-4 ${isClockedIn ? 'active' : ''}`} style={{ width: 100, height: 100, borderRadius: '50%', background: isClockedIn ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.02)', border: `2px solid ${isClockedIn ? 'var(--success)' : 'var(--midnight-border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                         <Clock size={42} className={isClockedIn ? 'text-success' : 'text-dimmed'} />
                       </div>
-                      <div className="col-md-7 p-4">
-                        <div className="d-flex justify-content-between align-items-center mb-4">
-                          <div>
-                            <div className="text-dimmed small fw-700 uppercase mb-1" style={{ fontSize: '0.6rem' }}>Working Hours</div>
-                            <div className="text-white fw-800 h5 mb-0">{safeToFixed(workingHours)}h</div>
-                          </div>
-                          <div>
-                            <div className="text-dimmed small fw-700 uppercase mb-1" style={{ fontSize: '0.6rem' }}>Daily Progress</div>
-                            <div className="text-cyan fw-800 h5 mb-0">{Math.round((safeNumber(workingHours)/8)*100)}%</div>
-                          </div>
-                        </div>
-
-                        <div className="d-grid gap-2">
-                          {!isClockedIn ? (
-                            <button onClick={handleClockIn} disabled={clockLoading} className="btn btn-premium-primary py-2 shadow-glow-cyan small">
-                              {clockLoading ? <div className="spinner-border spinner-border-sm" /> : <><CheckCircle className="me-2" size={16} /> Clock In</>}
+                      <h4 className="text-white fw-800 mb-1">{isClockedIn ? 'STATION ACTIVE' : 'STATION INACTIVE'}</h4>
+                      <p className="text-dimmed x-small fw-800 uppercase letter-spacing-1">Current Session Status</p>
+                      
+                      <div className="mt-4 w-100 d-grid">
+                         {!isClockedIn ? (
+                            <button onClick={handleClockIn} disabled={clockLoading} className="btn btn-premium-primary py-3 shadow-glow-cyan">
+                               {clockLoading ? <div className="spinner-border spinner-border-sm" /> : <><CheckCircle size={18} className="me-2" /> Start Shift</>}
                             </button>
-                          ) : (
-                            <button onClick={handleClockOut} disabled={clockLoading} className="btn btn-premium-danger py-2 shadow-glow-danger small">
-                              {clockLoading ? <div className="spinner-border spinner-border-sm" /> : <><Clock className="me-2" size={16} /> Clock Out</>}
+                         ) : (
+                            <button onClick={handleClockOut} disabled={clockLoading} className="btn btn-premium-danger py-3 shadow-glow-danger">
+                               {clockLoading ? <div className="spinner-border spinner-border-sm" /> : <><Clock size={18} className="me-2" /> End Shift</>}
                             </button>
-                          )}
-                        </div>
+                         )}
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Admin Discovery Layer */}
-          <div className="premium-card mb-5 border-0 shadow-lg" style={{ background: 'var(--midnight-card)' }}>
-            <div className="premium-card-body py-4">
-              <div className="row g-4 align-items-end">
-                <div className="col-lg-3">
-                  <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">
-                    <Calendar size={14} className="me-2 text-cyan" />
-                    Start Date
-                  </label>
-                  <input
-                    type="date"
-                    className="form-control bg-opacity-05 border-secondary border-opacity-10 py-2 text-white"
-                    style={{ borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)' }}
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                  />
-                </div>
-                <div className="col-lg-3">
-                  <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">
-                    <Calendar size={14} className="me-2 text-indigo" />
-                    End Date
-                  </label>
-                  <input
-                    type="date"
-                    className="form-control bg-opacity-05 border-secondary border-opacity-10 py-2 text-white"
-                    style={{ borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)' }}
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                  />
-                </div>
-                <div className="col-lg-3">
-                  <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">
-                    <Users size={14} className="me-2 text-cyan" />
-                    Employee
-                  </label>
-                  <select
-                    className="form-select bg-opacity-05 border-secondary border-opacity-10 py-2 text-white"
-                    style={{ borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)' }}
-                    value={employeeFilter || ""}
-                    onChange={(e) => setEmployeeFilter(e.target.value ? parseInt(e.target.value) : null)}
-                  >
-                    <option value="" className="bg-dark">All Employees</option>
-                    {employees.filter(e => e.role !== 'admin').map((emp) => (
-                      <option key={emp.id} value={emp.id} className="bg-dark">{emp.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="col-lg-2">
-                  <label className="text-secondary small fw-700 text-uppercase mb-2 d-block">
-                    <Filter size={14} className="me-2 text-indigo" />
-                    Status
-                  </label>
-                  <select
-                    className="form-select bg-opacity-05 border-secondary border-opacity-10 py-2 text-white"
-                    style={{ borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)' }}
-                    value={presenceFilter}
-                    onChange={(e) => setPresenceFilter(e.target.value)}
-                  >
-                    <option value="" className="bg-dark">All Statuses</option>
-                    <option value="present" className="bg-dark fst-normal">Present</option>
-                    <option value="absent" className="bg-dark fst-normal">Absent</option>
-                    <option value="late" className="bg-dark fst-normal">Late</option>
-                    <option value="half_day" className="bg-dark fst-normal">Half Day</option>
-                  </select>
-                </div>
-                <div className="col-lg-1">
-                  <button
-                    onClick={() => { setEmployeeFilter(null); setPresenceFilter(""); }}
-                    className="btn btn-premium-secondary w-100 py-2 border-secondary border-opacity-10 d-flex justify-content-center"
-                    title="Reset"
-                  >
-                    <RefreshCw size={18} />
-                  </button>
+              <div className="col-xl-8">
+                <div className="row g-4 h-100">
+                  <div className="col-md-6">
+                    <div className="premium-stat-card h-100">
+                       <div className="premium-stat-icon"><TrendingUp size={24} /></div>
+                       <div className="premium-stat-number">{safeToFixed(workingHours)}h</div>
+                       <div className="premium-stat-label">Total Hours Today</div>
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <div className="premium-stat-card h-100" style={{ borderColor: 'var(--accent-cyan)' }}>
+                       <div className="premium-stat-icon" style={{ color: 'var(--accent-cyan)', background: 'var(--accent-cyan-glow)' }}><Activity size={24} /></div>
+                       <div className="premium-stat-number">{Math.round((safeNumber(workingHours)/8)*100)}%</div>
+                       <div className="premium-stat-label">Shift Completion</div>
+                    </div>
+                  </div>
+                  <div className="col-12">
+                     <div className="premium-card p-4 h-100">
+                        <h6 className="text-white fw-800 mb-3 d-flex align-items-center gap-2">
+                           <History size={16} className="text-indigo" />
+                           Recent Activity Log
+                        </h6>
+                        <div className="d-flex flex-wrap gap-3">
+                           {todayEntries.length > 0 ? todayEntries.map((e, i) => (
+                             <div key={i} className="d-flex align-items-center gap-2 p-2 px-3 rounded-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--midnight-border)' }}>
+                                <div className={`status-dot ${e.entry_type === 'in' ? 'bg-success' : 'bg-danger'}`} style={{ width: 8, height: 8, borderRadius: '50%' }}></div>
+                                <span className="text-white small fw-700">{e.entry_type === 'in' ? 'IN' : 'OUT'}</span>
+                                <span className="text-dimmed small font-monospace">{e.time}</span>
+                             </div>
+                           )) : (
+                             <div className="text-dimmed small italic">No activity logged for today yet.</div>
+                           )}
+                        </div>
+                     </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+        )}
 
-          {/* Admin Attendance Registry */}
-          <div className="premium-card border-0 shadow-lg overflow-hidden">
-            <div className="premium-card-header bg-transparent py-4 border-bottom border-secondary border-opacity-10">
-              <h5 className="mb-0 fw-800 text-white d-flex align-items-center">
-                <Users className="me-3 text-cyan" size={22} />
-                Attendance Report <span className="ms-2 badge bg-cyan bg-opacity-10 text-cyan rounded-pill small fst-normal" style={{ fontSize: '0.7rem' }}>{filteredEmployees.length} ENTRIES</span>
-              </h5>
-            </div>
-            <div className="premium-card-body p-0">
-              <div className="table-responsive">
-                <table className="premium-table mb-0">
-                  <thead>
-                    <tr>
-                      <th>Employee</th>
-                      <th>Date</th>
-                      <th>Status</th>
-                      <th>Clock In</th>
-                      <th>Clock Out</th>
-                      <th className="text-end">Working Hours</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredEmployees.length > 0 ? (
-                      filteredEmployees.map((record) => (
-                        <tr key={`${record.employee_id}-${record.date}`}>
-                          <td>
-                            <div className="d-flex align-items-center">
-                              <div
-                                className="rounded-circle d-flex align-items-center justify-content-center me-3 fw-800 shadow-sm"
-                                style={{
-                                  width: "36px",
-                                  height: "36px",
-                                  background: 'var(--midnight-elevated)',
-                                  border: '1px solid var(--midnight-border-bright)',
-                                  color: 'var(--accent-cyan)',
-                                  fontSize: "0.85rem",
-                                }}
-                              >
-                                {record.employee_name.charAt(0)}
-                              </div>
-                              <span className="text-white fw-700">{record.employee_name}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <div className="text-secondary small fw-600">
-                              {new Date(record.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                            </div>
-                          </td>
-                          <td>
-                            <span
-                              className={`badge rounded-pill px-3 py-1 fw-700 text-uppercase`}
-                              style={{
-                                fontSize: '0.65rem',
-                                background: record.status === 'present' ? 'rgba(16,185,129,0.1)' : 
-                                           record.status === 'absent' ? 'rgba(239,68,68,0.1)' :
-                                           record.status === 'late' ? 'rgba(251,191,36,0.1)' : 'rgba(6,182,212,0.1)',
-                                color: record.status === 'present' ? 'var(--success)' : 
-                                       record.status === 'absent' ? '#ef4444' :
-                                       record.status === 'late' ? 'var(--accent-gold)' : 'var(--accent-cyan)',
-                                border: `1px solid ${record.status === 'present' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'}`
-                              }}
-                            >
-                              {record.status}
-                            </span>
-                          </td>
-                          <td><div className="text-white small fw-700">{record.first_clock_in || "---"}</div></td>
-                          <td><div className="text-white small fw-700">{record.last_clock_out || "---"}</div></td>
-                          <td className="text-end">
-                            <div className="d-flex align-items-center justify-content-end">
-                              <div className="text-cyan fw-800 me-2">{safeToFixed(record.total_working_hours)}h</div>
-                              <div className="progress" style={{ width: '40px', height: '4px', background: 'rgba(255,255,255,0.05)' }}>
-                                <div 
-                                  className="progress-bar bg-cyan" 
-                                  style={{ width: `${Math.min((safeNumber(record.total_working_hours)/8)*100, 100)}%` }}
-                                />
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={6} className="text-center py-5">
-                          <Clock size={48} className="text-dimmed opacity-10 mb-3" />
-                          <p className="text-secondary fw-500">No attendance records found for the selected criteria.</p>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {(!isAdmin && !isManager && !hasPermission('manage_attendance')) && (
-        <div className="row justify-content-center">
-          <div className="col-xl-8 col-lg-10">
-            {/* Clocking Station */}
-            <div className="premium-card mb-5 border-0 shadow-lg overflow-hidden" style={{ background: 'var(--midnight-card)' }}>
-              <div className="premium-card-body p-0">
-                <div className="row g-0">
-                  <div className="col-md-5 p-5 d-flex flex-column justify-content-center align-items-center border-end border-secondary border-opacity-10" style={{ background: 'var(--midnight-elevated)' }}>
-                    <div 
-                      className={`pulse-container mb-4 ${isClockedIn ? 'active' : ''}`}
-                      style={{ 
-                        width: '120px', 
-                        height: '120px', 
-                        borderRadius: '50%', 
-                        background: isClockedIn ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
-                        border: `2px solid ${isClockedIn ? 'var(--success)' : 'rgba(255,255,255,0.1)'}`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        position: 'relative'
-                      }}
-                    >
-                      {isClockedIn && (
-                        <div className="pulse-ring" style={{ border: '2px solid var(--success)' }} />
-                      )}
-                      <Clock size={48} className={isClockedIn ? 'text-success' : 'text-dimmed'} />
-                    </div>
-                    <div className="text-center">
-                      <h4 className="text-white fw-800 mb-1">{isClockedIn ? 'Clocked In' : 'Clocked Out'}</h4>
-                      <p className="text-white opacity-50 small fw-700 text-uppercase mb-0 tracking-wider">Current Status</p>
-                    </div>
-                  </div>
-                  <div className="col-md-7 p-5">
-                    {localError && (
-                      <div className="alert bg-danger bg-opacity-10 border-danger border-opacity-20 text-danger small fw-600 mb-4 d-flex align-items-center px-3 py-2 rounded-3">
-                        <AlertCircle size={16} className="me-2" />
-                        {localError}
-                      </div>
-                    )}
-                    
-                    <div className="mb-5">
-                      <h5 className="text-white fw-700 mb-4">Today's Progress</h5>
-                      <div className="row g-3">
-                        <div className="col-6">
-                          <div className="p-3 rounded-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                            <div className="text-dimmed small fw-700 uppercase mb-1" style={{ fontSize: '0.6rem' }}>Working Hours</div>
-                            <div className="text-white fw-800 h4 mb-0">{safeToFixed(workingHours)}h</div>
-                          </div>
-                        </div>
-                        <div className="col-6">
-                          <div className="p-3 rounded-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                            <div className="text-dimmed small fw-700 uppercase mb-1" style={{ fontSize: '0.6rem' }}>Daily Progress</div>
-                            <div className="text-cyan fw-800 h4 mb-0">{Math.round((safeNumber(workingHours)/8)*100)}%</div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="d-grid">
-                      {!isClockedIn ? (
-                        <button
-                          onClick={handleClockIn}
-                          disabled={clockLoading}
-                          className="btn btn-premium-primary py-3 shadow-glow-cyan"
-                        >
-                          {clockLoading ? (
-                            <><div className="spinner-border spinner-border-sm me-2" /> Clocking in...</>
-                          ) : (
-                            <><CheckCircle className="me-2" size={20} /> Clock In</>
-                          )}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={handleClockOut}
-                          disabled={clockLoading}
-                          className="btn btn-premium-danger py-3 shadow-glow-danger"
-                        >
-                          {clockLoading ? (
-                            <><div className="spinner-border spinner-border-sm me-2" /> Clocking out...</>
-                          ) : (
-                            <><Clock className="me-2" size={20} /> Clock Out</>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Session Analytics */}
-            <div className="premium-card border-0 shadow-lg" style={{ background: 'var(--midnight-card)' }}>
-              <div className="premium-card-header bg-transparent py-4 border-bottom border-secondary border-opacity-10">
-                <h5 className="mb-0 fw-800 text-white d-flex align-items-center">
-                  <Calendar className="me-3 text-indigo" size={22} />
-                  Today's Activity <span className="ms-2 badge bg-indigo bg-opacity-10 text-indigo rounded-pill small fst-normal" style={{ fontSize: '0.7rem' }}>SESSIONS</span>
-                </h5>
-              </div>
-              <div className="premium-card-body p-4">
-                {todayEntries.length > 0 ? (
-                  <div className="row g-4">
-                    {todayEntries.map((entry, index) => (
-                      <div key={index} className="col-12">
-                        <div className="group transition-all hover-bg-white-opacity-02 p-3 rounded-3 d-flex align-items-center justify-content-between border border-secondary border-opacity-05">
-                          <div className="d-flex align-items-center">
-                            <div 
-                              className="rounded-3 p-3 me-3" 
-                              style={{ 
-                                background: entry.entry_type === 'in' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', 
-                                color: entry.entry_type === 'in' ? 'var(--success)' : '#ef4444' 
-                              }}
-                            >
-                              {entry.entry_type === 'in' ? <CheckCircle size={20} /> : <XCircle size={20} />}
-                            </div>
-                            <div>
-                              <div className="text-white fw-700">{entry.entry_type === 'in' ? 'Clocked In' : 'Clocked Out'}</div>
-                              <div className="text-dimmed small fw-600 d-flex align-items-center mt-1">
-                                <Clock size={12} className="me-1 opacity-50" />
-                                Time: {entry.time}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="text-end">
-                            <div className="badge bg-white bg-opacity-05 text-secondary rounded-pill px-3 py-1 font-monospace" style={{ fontSize: '0.6rem' }}>
-                              Session ID: {entry.session_id?.substring(0, 8).toUpperCase() || "MANUAL"}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-5">
-                    <RefreshCw size={48} className="text-dimmed opacity-10 mb-3" />
-                    <h6 className="text-white fw-700">No Activity Today</h6>
-                    <p className="text-secondary small fw-500 mb-0">Your clock-in and clock-out activity will appear here.</p>
-                  </div>
-                )}
-              </div>
+        {/* Filters Section */}
+        <div className="col-12">
+          <div className="premium-card p-4" style={{ background: 'var(--midnight-surface)' }}>
+            <div className="row g-4 align-items-end">
+               <div className="col-lg-3 col-md-6">
+                  <label className="text-dimmed x-small fw-800 uppercase letter-spacing-1 mb-2 d-block">Start Date</label>
+                  <input type="date" className="form-control" value={startDate} onChange={e => setStartDate(e.target.value)} />
+               </div>
+               <div className="col-lg-3 col-md-6">
+                  <label className="text-dimmed x-small fw-800 uppercase letter-spacing-1 mb-2 d-block">End Date</label>
+                  <input type="date" className="form-control" value={endDate} onChange={e => setEndDate(e.target.value)} />
+               </div>
+               {(isAdmin || isManager) && (
+                 <>
+                   <div className="col-lg-3 col-md-6">
+                      <label className="text-dimmed x-small fw-800 uppercase letter-spacing-1 mb-2 d-block">Employee</label>
+                      <select className="form-select" value={employeeFilter || ''} onChange={e => setEmployeeFilter(e.target.value ? parseInt(e.target.value) : null)}>
+                         <option value="">All Employees</option>
+                         {employees.filter(e => e.role !== 'admin').map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                      </select>
+                   </div>
+                   <div className="col-lg-3 col-md-6">
+                      <label className="text-dimmed x-small fw-800 uppercase letter-spacing-1 mb-2 d-block">Filter Status</label>
+                      <select className="form-select" value={presenceFilter} onChange={e => setPresenceFilter(e.target.value)}>
+                         <option value="">All Attendance</option>
+                         <option value="present">Present Only</option>
+                         <option value="absent">Absent Only</option>
+                         <option value="late">Late Arrival</option>
+                      </select>
+                   </div>
+                 </>
+               )}
             </div>
           </div>
         </div>
-      )}
+
+        {/* Data Table */}
+        <div className="col-12">
+           <div className="premium-card overflow-hidden">
+              <div className="premium-card-header bg-transparent py-4 border-bottom border-secondary border-opacity-10 d-flex justify-content-between align-items-center">
+                 <h5 className="text-white fw-800 mb-0 d-flex align-items-center gap-2">
+                    <Users size={20} className="text-cyan" />
+                    Attendance Register
+                 </h5>
+                 <span className="badge-premium badge-premium-indigo">{filteredEmployees.length} RECORDS FOUND</span>
+              </div>
+              <div className="table-responsive">
+                 <table className="table table-dark table-hover align-middle mb-0">
+                    <thead>
+                       <tr className="border-bottom border-secondary border-opacity-10">
+                          <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1">Staff Member</th>
+                          <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1">Period</th>
+                          <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1 text-center">Status</th>
+                          <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1">Clock Details</th>
+                          <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1 text-end">Work Duration</th>
+                          {(isAdmin || isManager) && <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1 text-end">Action</th>}
+                       </tr>
+                    </thead>
+                    <tbody>
+                       {filteredEmployees.length > 0 ? filteredEmployees.map(record => (
+                         <React.Fragment key={`${record.employee_id}-${record.date}`}>
+                           <tr className={`border-bottom border-secondary border-opacity-05 ${editingRecord?.employee_id === record.employee_id && editingRecord?.date === record.date ? 'bg-cyan bg-opacity-05' : ''}`}>
+                              <td className="px-4 py-4">
+                                 <div className="d-flex align-items-center gap-3">
+                                    <div className="user-avatar-sm" style={{ width: 40, height: 40, background: 'var(--midnight-elevated)' }}>{record.employee_name?.charAt(0)}</div>
+                                    <div>
+                                       <div className="text-white fw-700 small">{record.employee_name}</div>
+                                       <div className="text-dimmed x-small">ID: #{record.employee_id}</div>
+                                    </div>
+                                 </div>
+                              </td>
+                              <td className="px-4 py-4">
+                                 <div className="text-white small fw-600">{new Date(record.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                 {getStatusBadge(record.status)}
+                              </td>
+                              <td className="px-4 py-4">
+                                 <div className="d-flex gap-3">
+                                    <div>
+                                       <div className="text-dimmed x-small fw-800 uppercase">In</div>
+                                       <div className="text-white small fw-700">{record.first_clock_in || '--:--'}</div>
+                                    </div>
+                                    <div>
+                                       <div className="text-dimmed x-small fw-800 uppercase">Out</div>
+                                       <div className="text-white small fw-700">{record.last_clock_out || '--:--'}</div>
+                                    </div>
+                                 </div>
+                              </td>
+                              <td className="px-4 py-4 text-end">
+                                 <div className="text-cyan fw-800 h6 mb-0 font-monospace">{safeToFixed(record.total_working_hours)}h</div>
+                                 <div className="progress ms-auto mt-1" style={{ width: '60px', height: '3px', background: 'rgba(255,255,255,0.05)' }}>
+                                    <div className="progress-bar bg-cyan" style={{ width: `${Math.min((safeNumber(record.total_working_hours)/8)*100, 100)}%` }} />
+                                  </div>
+                              </td>
+                              {(isAdmin || isManager) && (
+                                <td className="px-4 py-4 text-end">
+                                   <button onClick={() => openEditRow(record)} className={`btn btn-sm px-3 d-flex align-items-center gap-2 ms-auto ${editingRecord?.employee_id === record.employee_id && editingRecord?.date === record.date ? 'btn-premium-cyan shadow-glow-cyan' : 'btn-premium-secondary'}`}>
+                                     <Edit3 size={14} />
+                                     {record.id > 0 ? 'Edit' : 'Manual Override'}
+                                   </button>
+                                </td>
+                              )}
+                           </tr>
+                           {editingRecord?.employee_id === record.employee_id && editingRecord?.date === record.date && (
+                             <tr className="bg-cyan bg-opacity-02">
+                               <td colSpan={6} className="p-0 border-0">
+                                 <div className="p-4 mx-4 mb-4 rounded-3 border border-cyan border-opacity-10 shadow-lg fade-in" style={{ background: 'rgba(255,255,255,0.01)' }}>
+                                   <form onSubmit={handleUpdateAttendance}>
+                                     <div className="row g-4 align-items-end">
+                                       <div className="col-md-3">
+                                         <label className="text-dimmed x-small fw-800 uppercase mb-2 d-block">Verification Status</label>
+                                         <select className="form-select bg-dark border-secondary border-opacity-20" value={editData.status} onChange={e => setEditData({...editData, status: e.target.value})}>
+                                           <option value="present">Present</option>
+                                           <option value="absent">Absent</option>
+                                           <option value="late">Late Arrival</option>
+                                           <option value="half_day">Half Day</option>
+                                         </select>
+                                       </div>
+                                       <div className="col-md-2">
+                                         <label className="text-dimmed x-small fw-800 uppercase mb-2 d-block">First Clock In</label>
+                                         <input type="time" className="form-control bg-dark border-secondary border-opacity-20" value={editData.first_clock_in || ''} onChange={e => setEditData({...editData, first_clock_in: e.target.value})} />
+                                       </div>
+                                       <div className="col-md-2">
+                                         <label className="text-dimmed x-small fw-800 uppercase mb-2 d-block">Last Clock Out</label>
+                                         <input type="time" className="form-control bg-dark border-secondary border-opacity-20" value={editData.last_clock_out || ''} onChange={e => setEditData({...editData, last_clock_out: e.target.value})} />
+                                       </div>
+                                       <div className="col-md-2">
+                                         <label className="text-dimmed x-small fw-800 uppercase mb-2 d-block">Effective Hours</label>
+                                         <input type="number" step="0.1" className="form-control bg-dark border-secondary border-opacity-20" value={editData.total_working_hours} onChange={e => setEditData({...editData, total_working_hours: parseFloat(e.target.value) || 0})} />
+                                       </div>
+                                       <div className="col-md-3 d-flex gap-2">
+                                         <button type="button" onClick={() => setEditingRecord(null)} className="btn btn-premium-secondary flex-grow-1">Cancel</button>
+                                         <button type="submit" className="btn btn-premium-cyan flex-grow-1 shadow-glow-cyan">Save</button>
+                                       </div>
+                                     </div>
+                                   </form>
+                                 </div>
+                               </td>
+                             </tr>
+                           )}
+                         </React.Fragment>
+                       )) : (
+                         <tr>
+                            <td colSpan={6} className="text-center py-5 text-dimmed small">No attendance records match your criteria.</td>
+                         </tr>
+                       )}
+                    </tbody>
+                 </table>
+              </div>
+           </div>
+        </div>
+      </div>
     </div>
   );
 };

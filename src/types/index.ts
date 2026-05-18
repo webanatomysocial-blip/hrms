@@ -58,6 +58,7 @@ export interface LeaveRequest {
   employee_id: number;
   employee_name: string;
   employee_role?: string;
+  department?: string;
   type: 'sick' | 'vacation' | 'personal' | 'maternity' | 'paternity';
   start_date: string;
   end_date: string;

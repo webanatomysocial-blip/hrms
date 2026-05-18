@@ -135,6 +135,13 @@ class ApiService {
     }, 20000);
   }
 
+  async updateAttendance(data: { id: number; status: string; first_clock_in: string; last_clock_out: string; total_working_hours: number }): Promise<ApiResponse<void>> {
+    return await this.requestWithTimeout<void>('/attendance.php', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
   // LEAVES
   async getLeaveRequests(): Promise<ApiResponse<LeaveRequest[]>> {
     return await this.requestWithTimeout<LeaveRequest[]>('/leaves.php');
@@ -171,6 +178,19 @@ class ApiService {
   async deleteLeaveRequest(id: number): Promise<ApiResponse<void>> {
     return await this.requestWithTimeout<void>(`/leaves.php?id=${id}`, {
       method: 'DELETE',
+    });
+  }
+
+  async getLeaveBalances(employeeId?: number): Promise<ApiResponse<any[]>> {
+    let url = '/leaves.php?action=balances';
+    if (employeeId) url += `&employee_id=${employeeId}`;
+    return await this.requestWithTimeout<any[]>(url);
+  }
+
+  async updateLeaveBalance(data: { employee_id: number; year: number; sl: number; cl: number; pl: number }): Promise<ApiResponse<void>> {
+    return await this.requestWithTimeout<void>('/leaves.php?action=update-balance', {
+      method: 'PUT',
+      body: JSON.stringify(data),
     });
   }
 

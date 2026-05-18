@@ -24,12 +24,9 @@ switch ($method) {
     case 'GET':
         if (isset($_GET['employee_id'])) {
             $requestedEmployeeId = (int)$_GET['employee_id'];
-            
-            // Authorization Check: Only Admin, Manager or the User themselves can view their attendance
             if ($userRole !== 'admin' && $userRole !== 'manager' && (int)$requestedEmployeeId !== (int)$userId) {
                 sendResponse(false, 'Unauthorized access to employee data');
             }
-            
             if (isset($_GET['action']) && $_GET['action'] === 'active-session') {
                 getActiveSession($db, $requestedEmployeeId);
             } elseif (isset($_GET['summary'])) {
@@ -41,7 +38,6 @@ switch ($method) {
             if (isset($_GET['action']) && $_GET['action'] === 'active-session') {
                 getActiveSession($db, $userId);
             } elseif (isset($_GET['summary'])) {
-                // ✅ ALLOW: Everyone can see the global summary for the dashboard
                 getAllAttendanceSummary($db);
             } elseif ($userRole === 'admin' || $userRole === 'manager') {
                 if (isset($_GET['sync_summaries'])) {
@@ -50,7 +46,6 @@ switch ($method) {
                     getAllAttendance($db);
                 }
             } else {
-                // Employees see ONLY their own data for detailed logs
                 getEmployeeAttendance($db, (int)$userId);
             }
         }
@@ -59,17 +54,14 @@ switch ($method) {
         if (isset($_GET['action'])) {
             switch ($_GET['action']) {
                 case 'clock-in':
-                    // Force employee_id to be the authenticated user
                     $input['employee_id'] = $userId;
                     clockIn($db, $input);
                     break;
                 case 'clock-out':
-                    // Force employee_id to be the authenticated user
                     $input['employee_id'] = $userId;
                     clockOut($db, $input);
                     break;
                 default:
-                    // Only admin can manually create entries for others
                     if ($userRole !== 'admin' && isset($input['employee_id']) && $input['employee_id'] != $userId) {
                          sendResponse(false, 'Unauthorized to create attendance for others');
                     }
@@ -79,570 +71,229 @@ switch ($method) {
             createAttendanceEntry($db, $input);
         }
         break;
+    case 'PUT':
+        if ($userRole !== 'admin' && $userRole !== 'manager') {
+            sendResponse(false, 'Forbidden. Admin access required.');
+        }
+        updateAttendanceSummaryManual($db, $input);
+        break;
     default:
         sendResponse(false, 'Method not allowed');
 }
 
+/**
+ * Manually update or create daily attendance summary (Admin only)
+ */
+function updateAttendanceSummaryManual($db, $input) {
+    if (!isset($input['id']) && (!isset($input['employee_id']) || !isset($input['date']))) {
+        sendResponse(false, 'Summary ID or Employee ID & Date are required');
+    }
+
+    $id = isset($input['id']) ? (int)$input['id'] : 0;
+    $employeeId = isset($input['employee_id']) ? (int)$input['employee_id'] : null;
+    $date = isset($input['date']) ? $input['date'] : null;
+    
+    $status = $input['status'] ?? 'present';
+    $first_clock_in = $input['first_clock_in'] ?? null;
+    $last_clock_out = $input['last_clock_out'] ?? null;
+    $total_working_hours = $input['total_working_hours'] ?? 0;
+
+    try {
+        $db->beginTransaction();
+
+        if ($id > 0) {
+            $query = "UPDATE daily_attendance_summary 
+                      SET status = :status, 
+                          first_clock_in = :fci, 
+                          last_clock_out = :lco, 
+                          total_working_hours = :twh,
+                          updated_at = " . (DB_TYPE === 'mysql' ? 'NOW()' : "DATETIME('now', 'localtime')") . "
+                      WHERE id = :id";
+            
+            $stmt = $db->prepare($query);
+            $stmt->bindParam(':status', $status);
+            $stmt->bindParam(':fci', $first_clock_in);
+            $stmt->bindParam(':lco', $last_clock_out);
+            $stmt->bindParam(':twh', $total_working_hours);
+            $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+            $stmt->execute();
+
+            if (!$employeeId || !$date) {
+                $getInfo = $db->prepare("SELECT employee_id, date, employee_name FROM daily_attendance_summary WHERE id = :id");
+                $getInfo->execute([':id' => $id]);
+                $info = $getInfo->fetch();
+                $employeeId = $info['employee_id'];
+                $date = $info['date'];
+                $employeeName = $info['employee_name'];
+            }
+        } else {
+            $userStmt = $db->prepare("SELECT name FROM users WHERE id = :id");
+            $userStmt->bindParam(':id', $employeeId, PDO::PARAM_INT);
+            $userStmt->execute();
+            $user = $userStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$user) {
+                $db->rollBack();
+                sendResponse(false, 'Employee not found');
+            }
+            $employeeName = $user['name'];
+            $id = 0; // Ensure it's treated as new if id was passed as 0
+
+            if (DB_TYPE === 'mysql') {
+                $query = "INSERT INTO daily_attendance_summary 
+                          (employee_id, employee_name, date, status, first_clock_in, last_clock_out, total_working_hours, created_at, updated_at) 
+                          VALUES (:eid, :ename, :d, :status, :fci, :lco, :twh, NOW(), NOW())
+                          ON DUPLICATE KEY UPDATE status=VALUES(status), first_clock_in=VALUES(first_clock_in), last_clock_out=VALUES(last_clock_out), total_working_hours=VALUES(total_working_hours), updated_at=NOW()";
+            } else {
+                $query = "INSERT INTO daily_attendance_summary 
+                          (employee_id, employee_name, date, status, first_clock_in, last_clock_out, total_working_hours, created_at, updated_at) 
+                          VALUES (:eid, :ename, :d, :status, :fci, :lco, :twh, DATETIME('now', 'localtime'), DATETIME('now', 'localtime'))
+                          ON CONFLICT(employee_id, date) DO UPDATE SET status=excluded.status, first_clock_in=excluded.first_clock_in, last_clock_out=excluded.last_clock_out, total_working_hours=excluded.total_working_hours, updated_at=DATETIME('now', 'localtime')";
+            }
+            $stmt = $db->prepare($query);
+            $stmt->execute([':eid'=>$employeeId, ':ename'=>$employeeName, ':d'=>$date, ':status'=>$status, ':fci'=>$first_clock_in, ':lco'=>$last_clock_out, ':twh'=>$total_working_hours]);
+        }
+
+        // SYNC DETAILED LOGS
+        $db->prepare("DELETE FROM attendance WHERE employee_id = ? AND date = ?")->execute([$employeeId, $date]);
+        $sessionId = 'manual_' . uniqid();
+        if ($first_clock_in) {
+            $db->prepare("INSERT INTO attendance (employee_id, employee_name, date, time, entry_type, session_id, notes) VALUES (?, ?, ?, ?, 'in', ?, 'Manual override')")
+               ->execute([$employeeId, $employeeName, $date, $first_clock_in, $sessionId]);
+        }
+        if ($last_clock_out) {
+            $db->prepare("INSERT INTO attendance (employee_id, employee_name, date, time, entry_type, session_id, notes) VALUES (?, ?, ?, ?, 'out', ?, 'Manual override')")
+               ->execute([$employeeId, $employeeName, $date, $last_clock_out, $sessionId]);
+        }
+
+        $db->commit();
+        sendResponse(true, 'Attendance record updated successfully');
+    } catch (PDOException $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        sendResponse(false, 'Database failure: ' . $e->getMessage());
+    }
+}
+
 function getAllAttendance($db) {
     try {
-        $query = "SELECT a.* FROM attendance a
-                  JOIN users u ON a.employee_id = u.id
-                  WHERE u.role != 'admin'
-                  ORDER BY a.date DESC, a.time DESC 
-                  LIMIT 1000";
-        $stmt = $db->prepare($query);
-        $stmt->execute();
-        sendResponse(true, 'Attendance retrieved successfully', $stmt->fetchAll(PDO::FETCH_ASSOC));
-    } catch (PDOException $e) {
-        logError('Get all attendance error', ['error' => $e->getMessage()]);
-        sendResponse(false, 'Failed to retrieve attendance');
-    }
+        $query = "SELECT a.* FROM attendance a JOIN users u ON a.employee_id = u.id WHERE u.role != 'admin' ORDER BY a.date DESC, a.time DESC LIMIT 1000";
+        sendResponse(true, 'Attendance retrieved', $db->query($query)->fetchAll());
+    } catch (PDOException $e) { sendResponse(false, 'Error'); }
 }
 
 function getAllAttendanceSummary($db) {
     try {
-        $startDate = isset($_GET['start_date']) ? $_GET['start_date'] : null;
-        $endDate = isset($_GET['end_date']) ? $_GET['end_date'] : null;
-        
-        $query = "SELECT s.*, u.role FROM daily_attendance_summary s
-                  JOIN users u ON s.employee_id = u.id
-                  WHERE u.role != 'admin'";
+        $startDate = $_GET['start_date'] ?? null;
+        $endDate = $_GET['end_date'] ?? null;
+        $query = "SELECT s.*, u.role FROM daily_attendance_summary s JOIN users u ON s.employee_id = u.id WHERE u.role != 'admin'";
         $params = [];
-        
-        if ($startDate && $endDate) {
-            $query .= " AND date BETWEEN :start AND :end";
-            $params[':start'] = $startDate;
-            $params[':end'] = $endDate;
-        } elseif ($startDate) {
-            $query .= " AND date >= :start";
-            $params[':start'] = $startDate;
-        } elseif ($endDate) {
-            $query .= " AND date <= :end";
-            $params[':end'] = $endDate;
-        }
-        
+        if ($startDate && $endDate) { $query .= " AND date BETWEEN :start AND :end"; $params[':start'] = $startDate; $params[':end'] = $endDate; }
         $query .= " ORDER BY date DESC LIMIT 1000";
-        $stmt = $db->prepare($query);
-        foreach ($params as $key => $val) {
-            $stmt->bindValue($key, $val);
-        }
-        
-        $stmt->execute();
-        sendResponse(true, 'Attendance summary retrieved successfully', $stmt->fetchAll(PDO::FETCH_ASSOC));
-    } catch (PDOException $e) {
-        logError('Get all attendance summary error', ['error' => $e->getMessage()]);
-        sendResponse(false, 'Failed to retrieve attendance summary');
-    }
+        $stmt = $db->prepare($query); $stmt->execute($params);
+        sendResponse(true, 'Success', $stmt->fetchAll());
+    } catch (PDOException $e) { sendResponse(false, 'Error'); }
 }
 
 function getEmployeeAttendance($db, $employeeId) {
     try {
-        $query = "SELECT * FROM attendance 
-                  WHERE employee_id = :eid 
-                  ORDER BY date DESC, time DESC, id DESC 
-                  LIMIT 500";
-        $stmt = $db->prepare($query);
-        $stmt->bindParam(':eid', $employeeId, PDO::PARAM_INT);
-        $stmt->execute();
-        sendResponse(true, 'Employee attendance retrieved successfully', $stmt->fetchAll(PDO::FETCH_ASSOC));
-    } catch (PDOException $e) {
-        logError('Get employee attendance error', ['error' => $e->getMessage(), 'employee_id' => $employeeId]);
-        sendResponse(false, 'Failed to retrieve employee attendance');
-    }
+        $stmt = $db->prepare("SELECT * FROM attendance WHERE employee_id = ? ORDER BY date DESC, time DESC LIMIT 500");
+        $stmt->execute([$employeeId]);
+        sendResponse(true, 'Success', $stmt->fetchAll());
+    } catch (PDOException $e) { sendResponse(false, 'Error'); }
 }
 
 function getEmployeeAttendanceSummary($db, $employeeId) {
     try {
-        $startDate = isset($_GET['start_date']) ? $_GET['start_date'] : null;
-        $endDate = isset($_GET['end_date']) ? $_GET['end_date'] : null;
-        
-        $query = "SELECT * FROM daily_attendance_summary WHERE employee_id = :eid";
-        $params = [':eid' => $employeeId];
-        
-        if ($startDate && $endDate) {
-            $query .= " AND date BETWEEN :start AND :end";
-            $params[':start'] = $startDate;
-            $params[':end'] = $endDate;
-        } elseif ($startDate) {
-            $query .= " AND date >= :start";
-            $params[':start'] = $startDate;
-        } elseif ($endDate) {
-            $query .= " AND date <= :end";
-            $params[':end'] = $endDate;
-        }
-        
-        $query .= " ORDER BY date DESC LIMIT 365";
-        $stmt = $db->prepare($query);
-        foreach ($params as $key => $val) {
-            $stmt->bindValue($key, $val);
-        }
-        
-        $stmt->execute();
-        sendResponse(true, 'Employee attendance summary retrieved successfully', $stmt->fetchAll(PDO::FETCH_ASSOC));
-    } catch (PDOException $e) {
-        logError('Get employee attendance summary error', ['error' => $e->getMessage(), 'employee_id' => $employeeId]);
-        sendResponse(false, 'Failed to retrieve employee attendance summary');
-    }
+        $stmt = $db->prepare("SELECT * FROM daily_attendance_summary WHERE employee_id = ? ORDER BY date DESC LIMIT 365");
+        $stmt->execute([$employeeId]);
+        sendResponse(true, 'Success', $stmt->fetchAll());
+    } catch (PDOException $e) { sendResponse(false, 'Error'); }
 }
 
-/**
- * Get Active Session
- */
 function getActiveSession($db, $employeeId) {
     $today = date('Y-m-d');
     try {
-        $query = "SELECT id, entry_type, time, session_id FROM attendance 
-                  WHERE employee_id = :eid AND date = :d 
-                  ORDER BY id DESC 
-                  LIMIT 1";
-        $stmt = $db->prepare($query);
-        $stmt->bindParam(':eid', $employeeId, PDO::PARAM_INT);
-        $stmt->bindParam(':d', $today);
-        $stmt->execute();
-        $lastEntry = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($lastEntry && $lastEntry['entry_type'] === 'in') {
-            sendResponse(true, 'Active session found', [
-                'is_clocked_in' => true,
-                'clock_in_time' => $lastEntry['time'],
-                'session_id' => $lastEntry['session_id']
-            ]);
-        } else {
-            sendResponse(true, 'No active session', [
-                'is_clocked_in' => false
-            ]);
-        }
-    } catch (PDOException $e) {
-        sendResponse(false, 'Failed to check active session: ' . $e->getMessage());
-    }
+        $stmt = $db->prepare("SELECT id, entry_type, time, session_id FROM attendance WHERE employee_id = ? AND date = ? ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$employeeId, $today]);
+        $last = $stmt->fetch();
+        if ($last && $last['entry_type'] === 'in') sendResponse(true, 'Active', ['is_clocked_in'=>true, 'clock_in_time'=>$last['time'], 'session_id'=>$last['session_id']]);
+        else sendResponse(true, 'None', ['is_clocked_in'=>false]);
+    } catch (PDOException $e) { sendResponse(false, 'Error'); }
 }
 
-/**
- * Clock In
- */
 function clockIn($db, $input) {
-    if (!isset($input['employee_id']) || empty($input['employee_id'])) {
-        sendResponse(false, 'Employee ID is required');
-    }
-
     $employeeId = (int)$input['employee_id'];
-    
-    if ($employeeId <= 0) {
-        sendResponse(false, 'Invalid employee ID');
-    }
-
-    $today = date('Y-m-d');
-    $currentTime = date('H:i:s');
-    $sessionId = uniqid('session_', true);
-    $ipAddress = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-
+    $today = date('Y-m-d'); $currentTime = date('H:i:s');
     try {
         $db->beginTransaction();
-
-        // Get employee details
-        $userStmt = $db->prepare("SELECT name, active FROM users WHERE id = :id");
-        $userStmt->bindParam(':id', $employeeId, PDO::PARAM_INT);
-        $userStmt->execute();
-        $user = $userStmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$user) {
-            $db->rollBack();
-            logError('Clock in failed - employee not found', ['employee_id' => $employeeId]);
-            sendResponse(false, 'Employee not found');
-        }
-        
-        if (!$user['active']) {
-            $db->rollBack();
-            sendResponse(false, 'Employee account is inactive');
-        }
-        
-        $employeeName = $user['name'];
-
-        // Check ONLY the very last entry to decide if we can clock in
-        // If last entry was 'in', we can't clock in again.
-        $lastEntryStmt = $db->prepare("SELECT id, entry_type, time FROM attendance 
-                                       WHERE employee_id = :eid AND date = :d 
-                                       ORDER BY id DESC 
-                                       LIMIT 1");
-        $lastEntryStmt->bindParam(':eid', $employeeId, PDO::PARAM_INT);
-        $lastEntryStmt->bindParam(':d', $today);
-        $lastEntryStmt->execute();
-        $lastEntry = $lastEntryStmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($lastEntry) {
-            if ($lastEntry['entry_type'] === 'in') {
-                $db->rollBack();
-                logError('Clock in failed - already clocked in', ['employee_id' => $employeeId, 'last_time' => $lastEntry['time']]);
-                sendResponse(false, 'Already clocked in at ' . $lastEntry['time'] . '. Please clock out first.');
-            }
-        }
-
-        $now = (DB_TYPE === 'mysql') ? "NOW()" : "DATETIME('now', 'localtime')";
-        $insertStmt = $db->prepare("INSERT INTO attendance 
-                             (employee_id, employee_name, date, time, entry_type, session_id, ip_address, created_at) 
-                             VALUES (:eid, :ename, :d, :t, 'in', :sid, :ip, $now)");
-        $insertStmt->bindParam(':eid', $employeeId, PDO::PARAM_INT);
-        $insertStmt->bindParam(':ename', $employeeName);
-        $insertStmt->bindParam(':d', $today);
-        $insertStmt->bindParam(':t', $currentTime);
-        $insertStmt->bindParam(':sid', $sessionId);
-        $insertStmt->bindParam(':ip', $ipAddress);
-        
-        if (!$insertStmt->execute()) {
-            $db->rollBack();
-            logError('Clock in failed - insert failed', ['employee_id' => $employeeId]);
-            sendResponse(false, 'Failed to record clock in');
-        }
-
-        updateDailySummary($db, $employeeId, $employeeName, $today);
-        
+        $user = $db->prepare("SELECT name, active FROM users WHERE id = ?"); $user->execute([$employeeId]); $u = $user->fetch();
+        if (!$u || !$u['active']) { $db->rollBack(); sendResponse(false, 'Inactive'); }
+        $last = $db->prepare("SELECT entry_type FROM attendance WHERE employee_id = ? AND date = ? ORDER BY id DESC LIMIT 1"); $last->execute([$employeeId, $today]); $l = $last->fetch();
+        if ($l && $l['entry_type'] === 'in') { $db->rollBack(); sendResponse(false, 'Already in'); }
+        $db->prepare("INSERT INTO attendance (employee_id, employee_name, date, time, entry_type, session_id) VALUES (?, ?, ?, ?, 'in', ?)")
+           ->execute([$employeeId, $u['name'], $today, $currentTime, uniqid('session_', true)]);
+        updateDailySummary($db, $employeeId, $u['name'], $today);
         $db->commit();
-        
-        logError('Clock in successful', ['employee_id' => $employeeId, 'name' => $employeeName, 'time' => $currentTime]);
-        
-        sendResponse(true, 'Clocked in successfully', [
-            'time' => $currentTime, 
-            'session_id' => $sessionId,
-            'employee_name' => $employeeName,
-            'date' => $today
-        ]);
-        
-    } catch (PDOException $e) {
-        if ($db->inTransaction()) {
-            $db->rollBack();
-        }
-        logError('Clock in database error', ['error' => $e->getMessage(), 'employee_id' => $employeeId]);
-        sendResponse(false, 'Clock in failed: ' . $e->getMessage());
-    }
+        sendResponse(true, 'Success', ['time'=>$currentTime]);
+    } catch (PDOException $e) { if ($db->inTransaction()) $db->rollBack(); sendResponse(false, 'Error'); }
 }
 
-/**
- * Clock Out
- */
 function clockOut($db, $input) {
-    if (!isset($input['employee_id']) || empty($input['employee_id'])) {
-        sendResponse(false, 'Employee ID is required');
-    }
-
     $employeeId = (int)$input['employee_id'];
-    
-    if ($employeeId <= 0) {
-        sendResponse(false, 'Invalid employee ID');
-    }
-
-    $today = date('Y-m-d');
-    $currentTime = date('H:i:s');
-    // HARD CAP: If clocking out after 9 PM, record it as exactly 9 PM
-    if ($currentTime > '21:00:00') {
-        $currentTime = '21:00:00';
-    }
-    $ipAddress = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-
+    $today = date('Y-m-d'); $currentTime = date('H:i:s');
+    if ($currentTime > '21:00:00') $currentTime = '21:00:00';
     try {
         $db->beginTransaction();
-
-        // Get employee details
-        $userStmt = $db->prepare("SELECT name, active FROM users WHERE id = :id");
-        $userStmt->bindParam(':id', $employeeId, PDO::PARAM_INT);
-        $userStmt->execute();
-        $user = $userStmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$user) {
-            $db->rollBack();
-            logError('Clock out failed - employee not found', ['employee_id' => $employeeId]);
-            sendResponse(false, 'Employee not found');
-        }
-        
-        if (!$user['active']) {
-            $db->rollBack();
-            sendResponse(false, 'Employee account is inactive');
-        }
-        
-        $employeeName = $user['name'];
-
-        // Check last entry
-        $lastEntryStmt = $db->prepare("SELECT id, entry_type, session_id, time FROM attendance 
-                                       WHERE employee_id = :eid AND date = :d 
-                                       ORDER BY id DESC 
-                                       LIMIT 1");
-        $lastEntryStmt->bindParam(':eid', $employeeId, PDO::PARAM_INT);
-        $lastEntryStmt->bindParam(':d', $today);
-        $lastEntryStmt->execute();
-        $lastEntry = $lastEntryStmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$lastEntry) {
-            $db->rollBack();
-            logError('Clock out failed - no clock in found', ['employee_id' => $employeeId]);
-            sendResponse(false, 'No clock-in record found for today. Please clock in first.');
-        }
-
-        if ($lastEntry['entry_type'] === 'out') {
-            $db->rollBack();
-            logError('Clock out failed - already clocked out', ['employee_id' => $employeeId, 'last_time' => $lastEntry['time']]);
-            sendResponse(false, 'Already clocked out at ' . $lastEntry['time'] . '. Please clock in first.');
-        }
-
-        $now = (getenv('DB_TYPE') === 'mysql') ? "NOW()" : "DATETIME('now', 'localtime')";
-        $insertStmt = $db->prepare("INSERT INTO attendance 
-                             (employee_id, employee_name, date, time, entry_type, session_id, ip_address, created_at) 
-                             VALUES (:eid, :ename, :d, :t, 'out', :sid, :ip, $now)");
-        $insertStmt->bindParam(':eid', $employeeId, PDO::PARAM_INT);
-        $insertStmt->bindParam(':ename', $employeeName);
-        $insertStmt->bindParam(':d', $today);
-        $insertStmt->bindParam(':t', $currentTime);
-        $insertStmt->bindParam(':sid', $lastEntry['session_id']);
-        $insertStmt->bindParam(':ip', $ipAddress);
-        
-        if (!$insertStmt->execute()) {
-            $db->rollBack();
-            logError('Clock out failed - insert failed', ['employee_id' => $employeeId]);
-            sendResponse(false, 'Failed to record clock out');
-        }
-
-        $workingHours = updateDailySummary($db, $employeeId, $employeeName, $today);
-        
+        $user = $db->prepare("SELECT name FROM users WHERE id = ?"); $user->execute([$employeeId]); $u = $user->fetch();
+        $last = $db->prepare("SELECT session_id, entry_type FROM attendance WHERE employee_id = ? AND date = ? ORDER BY id DESC LIMIT 1"); $last->execute([$employeeId, $today]); $l = $last->fetch();
+        if (!$l || $l['entry_type'] === 'out') { $db->rollBack(); sendResponse(false, 'Not in'); }
+        $db->prepare("INSERT INTO attendance (employee_id, employee_name, date, time, entry_type, session_id) VALUES (?, ?, ?, ?, 'out', ?)")
+           ->execute([$employeeId, $u['name'], $today, $currentTime, $l['session_id']]);
+        $hours = updateDailySummary($db, $employeeId, $u['name'], $today);
         $db->commit();
-        
-        logError('Clock out successful', ['employee_id' => $employeeId, 'name' => $employeeName, 'time' => $currentTime, 'hours' => $workingHours]);
-        
-        sendResponse(true, 'Clocked out successfully', [
-            'time' => $currentTime, 
-            'working_hours' => $workingHours,
-            'employee_name' => $employeeName,
-            'date' => $today
-        ]);
-        
-    } catch (PDOException $e) {
-        if ($db->inTransaction()) {
-            $db->rollBack();
-        }
-        logError('Clock out database error', ['error' => $e->getMessage(), 'employee_id' => $employeeId]);
-        sendResponse(false, 'Clock out failed: ' . $e->getMessage());
-    }
+        sendResponse(true, 'Success', ['time'=>$currentTime, 'working_hours'=>$hours]);
+    } catch (PDOException $e) { if ($db->inTransaction()) $db->rollBack(); sendResponse(false, 'Error'); }
 }
 
-/**
- * Update daily summary
- */
 function updateDailySummary($db, $employeeId, $employeeName, $date) {
     try {
-        // Get all entries for this date
-        $entriesStmt = $db->prepare("SELECT * FROM attendance 
-                                     WHERE employee_id = :eid AND date = :d 
-                                     ORDER BY id ASC");
-        $entriesStmt->bindParam(':eid', $employeeId, PDO::PARAM_INT);
-        $entriesStmt->bindParam(':d', $date);
-        $entriesStmt->execute();
-        
-        $entries = $entriesStmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        if (empty($entries)) {
-            return 0;
-        }
-
-        $totalWorkingSeconds = 0;
-        $firstClockIn = null;
-        $lastClockOut = null;
-        $currentClockIn = null;
-
+        $stmt = $db->prepare("SELECT * FROM attendance WHERE employee_id = ? AND date = ? ORDER BY id ASC"); $stmt->execute([$employeeId, $date]); $entries = $stmt->fetchAll();
+        if (empty($entries)) return 0;
+        $totalWorkingSeconds = 0; $firstClockIn = null; $lastClockOut = null; $currentClockIn = null;
         foreach ($entries as $entry) {
-            if ($entry['entry_type'] === 'in') {
-                $currentClockIn = $entry['time'];
-                if ($firstClockIn === null) {
-                    $firstClockIn = $entry['time'];
-                }
-                // If they clocked in, mark any previous clock-out as overridden for the summary
-                $lastClockOut = null; 
-            } elseif ($entry['entry_type'] === 'out' && $currentClockIn !== null) {
-                $clockInTime = strtotime($date . ' ' . $currentClockIn);
-                
-                // CAP at 9:00 PM
-                $actualClockOutTime = $entry['time'];
-                if ($actualClockOutTime > '21:00:00') {
-                    $actualClockOutTime = '21:00:00';
-                }
-                
-                $clockOutTime = strtotime($date . ' ' . $actualClockOutTime);
-                $sessionSeconds = $clockOutTime - $clockInTime;
-                
-                if ($sessionSeconds > 0) {
-                    $totalWorkingSeconds += $sessionSeconds;
-                }
-                
-                $lastClockOut = $actualClockOutTime;
-                $currentClockIn = null;
+            if ($entry['entry_type'] === 'in') { $currentClockIn = $entry['time']; if ($firstClockIn === null) $firstClockIn = $entry['time']; }
+            elseif ($entry['entry_type'] === 'out' && $currentClockIn !== null) {
+                $in = strtotime($date . ' ' . $currentClockIn); $outTime = $entry['time'] > '21:00:00' ? '21:00:00' : $entry['time'];
+                $out = strtotime($date . ' ' . $outTime); $totalWorkingSeconds += max(0, $out - $in); $lastClockOut = $outTime; $currentClockIn = null;
             }
         }
-
-        // AUTO CLOCK-OUT LOGIC:
-        // If still clocked in and (it's a past date OR it's today after 9:00 PM)
-        if ($currentClockIn !== null) {
-            $today = date('Y-m-d');
-            $currentTime = date('H:i:s');
-            $ninePM = '21:00:00';
-            
-            if ($date < $today || ($date === $today && $currentTime >= $ninePM)) {
-                $clockInTime = strtotime($date . ' ' . $currentClockIn);
-                $clockOutTime = strtotime($date . ' ' . $ninePM);
-                $sessionSeconds = $clockOutTime - $clockInTime;
-                
-                if ($sessionSeconds > 0) {
-                    $totalWorkingSeconds += $sessionSeconds;
-                }
-                $lastClockOut = $ninePM;
-                
-                // Optional: We could actually INSERT an 'out' record here if we wanted it to be persistent
-                // but updating the summary is often enough for reporting.
-            }
-        }
-
-        $totalWorkingHours = round($totalWorkingSeconds / 3600, 2);
-        
-        // Determine status
-        $status = 'present';
-        
-        // If they have worked less than 4 hours but have clocked out at least once today
-        if ($totalWorkingHours > 0 && $totalWorkingHours < 4 && $lastClockOut !== null) {
-            $status = 'half_day';
-        }
-        
-        // Late takes precedence: if anyone comes after 9:15 they get late
-        if ($firstClockIn && strtotime($firstClockIn) > strtotime('09:15:00')) {
-            $status = 'late';
-        }
-        
-        // If they are currently clocked in (lastClockOut is null) 
-        // we keep the status as 'present' or 'late' as determined above
-        if ($lastClockOut === null && $firstClockIn !== null) {
-            // No changes needed, status is already 'present' or 'late'
-        }
-
-
-        if (DB_TYPE === 'mysql') {
-            $summaryStmt = $db->prepare("
-                INSERT INTO daily_attendance_summary 
-                (employee_id, employee_name, date, total_working_hours, total_break_time, status, first_clock_in, last_clock_out, created_at, updated_at) 
-                VALUES (:eid, :ename, :d, :twh, 0, :st, :fci, :lco, NOW(), NOW())
-                ON DUPLICATE KEY UPDATE 
-                total_working_hours = VALUES(total_working_hours),
-                status = VALUES(status),
-                first_clock_in = VALUES(first_clock_in),
-                last_clock_out = VALUES(last_clock_out),
-                updated_at = NOW()
-            ");
+        $totalWorkingHours = round($totalWorkingSeconds / 3600, 2); $status = 'present';
+        if ($totalWorkingHours > 0 && $totalWorkingHours < 4 && $lastClockOut !== null) $status = 'half_day';
+        if ($firstClockIn && strtotime($firstClockIn) > strtotime('09:15:00')) $status = 'late';
+        if (getenv('DB_TYPE') === 'mysql') {
+            $q = "INSERT INTO daily_attendance_summary (employee_id, employee_name, date, total_working_hours, total_break_time, status, first_clock_in, last_clock_out, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, NOW(), NOW()) ON DUPLICATE KEY UPDATE total_working_hours=VALUES(total_working_hours), status=VALUES(status), first_clock_in=VALUES(first_clock_in), last_clock_out=VALUES(last_clock_out), updated_at=NOW()";
         } else {
-            $summaryStmt = $db->prepare("
-                INSERT INTO daily_attendance_summary 
-                (employee_id, employee_name, date, total_working_hours, total_break_time, status, first_clock_in, last_clock_out, created_at, updated_at) 
-                VALUES (:eid, :ename, :d, :twh, 0, :st, :fci, :lco, DATETIME('now', 'localtime'), DATETIME('now', 'localtime'))
-                ON CONFLICT(employee_id, date) DO UPDATE SET 
-                total_working_hours = excluded.total_working_hours,
-                status = excluded.status,
-                first_clock_in = excluded.first_clock_in,
-                last_clock_out = excluded.last_clock_out,
-                updated_at = DATETIME('now', 'localtime')
-            ");
+            $q = "INSERT INTO daily_attendance_summary (employee_id, employee_name, date, total_working_hours, total_break_time, status, first_clock_in, last_clock_out, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, DATETIME('now', 'localtime'), DATETIME('now', 'localtime')) ON CONFLICT(employee_id, date) DO UPDATE SET total_working_hours=excluded.total_working_hours, status=excluded.status, first_clock_in=excluded.first_clock_in, last_clock_out=excluded.last_clock_out, updated_at=DATETIME('now', 'localtime')";
         }
-        
-        $summaryStmt->bindParam(':eid', $employeeId, PDO::PARAM_INT);
-        $summaryStmt->bindParam(':ename', $employeeName);
-        $summaryStmt->bindParam(':d', $date);
-        $summaryStmt->bindParam(':twh', $totalWorkingHours);
-        $summaryStmt->bindParam(':st', $status);
-        $summaryStmt->bindParam(':fci', $firstClockIn);
-        $summaryStmt->bindParam(':lco', $lastClockOut);
-        
-        $summaryStmt->execute();
-
+        $db->prepare($q)->execute([$employeeId, $employeeName, $date, $totalWorkingHours, $status, $firstClockIn, $lastClockOut]);
         return $totalWorkingHours;
-        
-    } catch (PDOException $e) {
-        logError('Update daily summary error', ['error' => $e->getMessage(), 'employee_id' => $employeeId, 'date' => $date]);
-        return 0;
-    }
+    } catch (PDOException $e) { return 0; }
 }
 
 function createAttendanceEntry($db, $input) {
-    if (!isset($input['employee_id'], $input['date'], $input['time'], $input['entry_type'])) {
-        sendResponse(false, 'Employee ID, date, time and entry type are required');
-    }
-
-    $employeeId = (int)$input['employee_id'];
-    $date = validateInput($input['date']);
-    $time = validateInput($input['time']);
-    $entryType = validateInput($input['entry_type']);
-    $sessionId = isset($input['session_id']) ? validateInput($input['session_id']) : uniqid('session_', true);
-    $notes = isset($input['notes']) ? validateInput($input['notes']) : null;
-    
-    // Authorization Check: already done in switch-case mostly, but double check
-    global $userId, $userRole;
-    if ($userRole !== 'admin' && $employeeId !== $userId) {
-        sendResponse(false, 'Unauthorized');
-    }
-
-    if (!validateDate($date)) {
-        sendResponse(false, 'Invalid date format. Use YYYY-MM-DD');
-    }
-
-    if (!in_array($entryType, ['in', 'out'])) {
-        sendResponse(false, 'Entry type must be "in" or "out"');
-    }
-
     try {
-        $userStmt = $db->prepare("SELECT name FROM users WHERE id = :id");
-        $userStmt->bindParam(':id', $employeeId, PDO::PARAM_INT);
-        $userStmt->execute();
-        
-        if ($userStmt->rowCount() === 0) {
-            sendResponse(false, 'Employee not found');
-        }
-        
-        $user = $userStmt->fetch(PDO::FETCH_ASSOC);
-        $employeeName = $user['name'];
-
-        $stmt = $db->prepare("INSERT INTO attendance 
-                             (employee_id, employee_name, date, time, entry_type, session_id, notes) 
-                             VALUES (:eid, :ename, :d, :t, :etype, :sid, :notes)");
-        $stmt->bindParam(':eid', $employeeId, PDO::PARAM_INT);
-        $stmt->bindParam(':ename', $employeeName);
-        $stmt->bindParam(':d', $date);
-        $stmt->bindParam(':t', $time);
-        $stmt->bindParam(':etype', $entryType);
-        $stmt->bindParam(':sid', $sessionId);
-        $stmt->bindParam(':notes', $notes);
-
-        if ($stmt->execute()) {
-            updateDailySummary($db, $employeeId, $employeeName, $date);
-            logError('Manual attendance entry created', ['employee_id' => $employeeId, 'date' => $date]);
-            sendResponse(true, 'Attendance entry created successfully');
-        } else {
-            sendResponse(false, 'Failed to create attendance entry');
-        }
-    } catch (PDOException $e) {
-        logError('Create attendance entry error', ['error' => $e->getMessage(), 'employee_id' => $employeeId]);
-        sendResponse(false, 'Failed to create attendance entry');
-    }
+        $u = $db->prepare("SELECT name FROM users WHERE id = ?"); $u->execute([$input['employee_id']]); $name = $u->fetch()['name'];
+        $db->prepare("INSERT INTO attendance (employee_id, employee_name, date, time, entry_type, session_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?)")
+           ->execute([$input['employee_id'], $name, $input['date'], $input['time'], $input['entry_type'], uniqid(), $input['notes']??null]);
+        updateDailySummary($db, $input['employee_id'], $name, $input['date']);
+        sendResponse(true, 'Success');
+    } catch (PDOException $e) { sendResponse(false, 'Error'); }
 }
 
 function syncAllDailySummaries($db) {
     try {
-        $today = date('Y-m-d');
-        // Get all unique employees who clocked in today
-        $stmt = $db->prepare("SELECT DISTINCT employee_id, employee_name FROM attendance WHERE date = :today");
-        $stmt->bindParam(':today', $today);
-        $stmt->execute();
-        $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $synced = 0;
-        foreach ($employees as $emp) {
-            updateDailySummary($db, $emp['employee_id'], $emp['employee_name'], $today);
-            $synced++;
-        }
-        
-        sendResponse(true, "Successfully synced summary for $synced employees today.");
-    } catch (PDOException $e) {
-        logError('Sync daily summaries error', ['error' => $e->getMessage()]);
-        sendResponse(false, 'Failed to sync daily summaries');
-    }
+        $today = date('Y-m-d'); $stmt = $db->query("SELECT DISTINCT employee_id, employee_name FROM attendance WHERE date = '$today'");
+        $synced = 0; while ($emp = $stmt->fetch()) { updateDailySummary($db, $emp['employee_id'], $emp['employee_name'], $today); $synced++; }
+        sendResponse(true, "Synced $synced.");
+    } catch (PDOException $e) { sendResponse(false, 'Error'); }
 }
 ?>

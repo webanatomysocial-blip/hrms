@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import {
   DollarSign, FileText, AlertCircle, Calendar,
-  Download, Eye, X, TrendingUp
+  Download, Eye, TrendingUp, User, Briefcase
 } from 'lucide-react';
 
 const MONTH_NAMES = [
@@ -15,34 +15,30 @@ const fmt = (n: any) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFr
 
 const Payroll: React.FC = () => {
   const { user, isAdmin } = useAuth();
-  const [ctc, setCtc] = useState('');
-  const [selectedEmp, setSelectedEmp] = useState('');
   const [employees, setEmployees] = useState<any[]>([]);
   const [salaryInfo, setSalaryInfo] = useState<any>(null);
   const [payslips, setPayslips] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [activeSlip, setActiveSlip] = useState<any>(null);
-
+  const [editCtcModal, setEditCtcModal] = useState<{show: boolean, emp: any}>({show: false, emp: null});
+  const [newCtc, setNewCtc] = useState('');
 
   useEffect(() => {
-    if (!user) return; // wait until auth is resolved
+    if (!user) return;
     fetchInitialData();
   }, [user, isAdmin]);
 
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-      // Always fetch payslips
       const slipsRes = await api.getPayslips();
       if (slipsRes.success) setPayslips(slipsRes.data || []);
 
       if (isAdmin || user?.role === 'manager') {
-        // Admin: load all employees for the CTC form
         const empRes = await api.getEmployees();
         if (empRes.success) setEmployees(empRes.data || []);
       } else {
-        // Employee: load own salary structure
         const salaryRes = await api.getMySalary();
         if (salaryRes.success) setSalaryInfo(salaryRes.data);
       }
@@ -55,15 +51,14 @@ const Payroll: React.FC = () => {
 
   const handleSetCtc = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEmp || !ctc) return;
+    if (!editCtcModal.emp || !newCtc) return;
     try {
-      const res = await api.setEmployeeCTC(parseInt(selectedEmp), parseFloat(ctc));
+      const res = await api.setEmployeeCTC(editCtcModal.emp.id, parseFloat(newCtc));
       if (res.success) {
-        setMessage({ text: 'CTC configured. Payslips from Jan 2026 have been auto-generated.', type: 'success' });
-        setCtc('');
-        setSelectedEmp('');
-        const slipsRes = await api.getPayslips();
-        if (slipsRes.success) setPayslips(slipsRes.data || []);
+        setMessage({ text: `CTC configured for ${editCtcModal.emp.name}.`, type: 'success' });
+        setNewCtc('');
+        setEditCtcModal({show: false, emp: null});
+        fetchInitialData();
       } else {
         setMessage({ text: res.message || 'Failed to update CTC', type: 'error' });
       }
@@ -72,267 +67,272 @@ const Payroll: React.FC = () => {
     }
   };
 
+  const openEditCtc = (emp: any) => {
+    setEditCtcModal({show: true, emp});
+    setNewCtc(emp.ctc?.toString() || '');
+  };
+
   const handlePrint = () => {
     if (!activeSlip) return;
     const printEl = document.getElementById('payslip-printable');
     if (!printEl) return;
 
-    const printWindow = window.open('', '_blank', 'width=850,height=1000');
+    const printWindow = window.open('', '_blank', 'width=900,height=1000');
     if (!printWindow) {
       alert('Please enable popups to allow PDF downloads.');
       return;
     }
 
-    printWindow.document.write(`
+    const htmlContent = `
       <!DOCTYPE html>
       <html>
         <head>
           <title>Payslip_${activeSlip.employee_name || 'Employee'}_${activeSlip.month}_${activeSlip.year}</title>
           <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
           <style>
-            body { background-color: #ffffff !important; color: #000000 !important; padding: 20px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .table { border-collapse: collapse; }
-            .table th, .table td { border: 1px solid #000000 !important; padding: 10px !important; }
-            .font-monospace { font-family: monospace !important; }
-            @media print { body { padding: 0; margin: 0; } }
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+            body { 
+              background-color: #ffffff !important; 
+              color: #000000 !important; 
+              padding: 40px; 
+              font-family: 'Inter', sans-serif;
+              -webkit-print-color-adjust: exact; 
+              print-color-adjust: exact; 
+            }
+            .payslip-header { border-bottom: 2px solid #000; margin-bottom: 30px; padding-bottom: 20px; }
+            .company-name { font-size: 24px; font-weight: 800; color: #003366; }
+            .section-title { background: #f0f4f8; padding: 10px 15px; font-weight: 700; font-size: 14px; margin: 20px 0 10px 0; border-left: 4px solid #003366; }
+            .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; }
+            .info-item { display: flex; justify-content: space-between; border-bottom: 1px dashed #ddd; padding-bottom: 5px; }
+            .info-label { font-size: 11px; color: #666; font-weight: 600; text-transform: uppercase; }
+            .info-value { font-size: 12px; font-weight: 700; }
+            .salary-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            .salary-table th { background: #003366; color: #fff; padding: 12px 15px; text-align: left; font-size: 12px; }
+            .salary-table td { padding: 10px 15px; border-bottom: 1px solid #eee; font-size: 12px; }
+            .salary-table tr:last-child td { border-bottom: 2px solid #003366; font-weight: 800; background: #f8fafc; }
+            .total-row { background: #f0f4f8; font-weight: 800; }
+            .net-pay-box { background: #003366; color: #fff; padding: 20px; border-radius: 8px; margin-top: 30px; display: flex; justify-content: space-between; align-items: center; }
+            .net-pay-label { font-size: 14px; font-weight: 600; }
+            .net-pay-value { font-size: 24px; font-weight: 800; }
+            @media print { 
+              body { padding: 0; margin: 0; } 
+              .no-print { display: none !important; } 
+              @page { size: auto; margin: 20mm; }
+            }
           </style>
         </head>
         <body>
-          <div style="max-width: 800px; margin: 0 auto;">
+          <div style="max-width: 850px; margin: 0 auto;">
             ${printEl.innerHTML}
           </div>
           <script>
             window.onload = () => {
-              setTimeout(() => { window.print(); window.close(); }, 1000);
+              setTimeout(() => { 
+                window.print(); 
+                // We don't close immediately to let the print dialog finish
+              }, 1000);
             };
           </script>
         </body>
       </html>
-    `);
+    `;
+
+    printWindow.document.write(htmlContent);
     printWindow.document.close();
-    setActiveSlip(null);
   };
-
-
 
   if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: 300 }}>
-        <div className="spinner-border text-cyan" />
+      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: 400 }}>
+        <div className="premium-spinner" />
       </div>
     );
   }
 
   return (
-    <div className="container-fluid fade-in">
-      {/* Print styles */}
-      <style>{`
-        @media print {
-          body * { visibility: hidden !important; }
-          #payslip-printable, #payslip-printable * { visibility: visible !important; }
-          #payslip-printable {
-            position: fixed; inset: 0; width: 100vw;
-            background: #fff !important; color: #111 !important;
-            padding: 32px; z-index: 9999;
-          }
-          .no-print { display: none !important; }
-        }
-      `}</style>
-
+    <div className="container-fluid fade-in px-0">
       {/* Header */}
-      <div className="d-flex align-items-center justify-content-between mb-4 no-print">
-        <div>
-          <h1 className="display-6 fw-800 text-white mb-1">Payroll</h1>
-          <p className="text-dimmed small m-0">
-            {isAdmin ? 'Manage employee salary packages and view payslips' : 'View your monthly salary statements'}
+      <div className="row mb-5">
+        <div className="col-12">
+          <h1 className="display-5 fw-800 text-white mb-2">Payroll & Compensation</h1>
+          <p className="text-secondary fw-500 mb-0">
+            {isAdmin ? 'Manage employee salary structures and audit statements' : 'Your monthly earnings and historical payslips'}
           </p>
         </div>
-
       </div>
 
       {message && (
-        <div className={`alert alert-${message.type === 'success' ? 'success' : 'danger'} d-flex align-items-center gap-2 mb-4 no-print`}
-          style={{ background: message.type === 'success' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', border: 'none', borderRadius: 12, color: message.type === 'success' ? '#22c55e' : '#ef4444' }}>
-          {message.type === 'success' ? <TrendingUp size={16} /> : <AlertCircle size={16} />}
-          <span>{message.text}</span>
-          <button className="btn-close btn-close-white ms-auto opacity-50" onClick={() => setMessage(null)} />
+        <div className={`alert alert-${message.type === 'success' ? 'success' : 'danger'} fade-in mb-5 no-print`}>
+          <div className="d-flex align-items-center gap-3">
+            {message.type === 'success' ? <TrendingUp size={24} className="text-success" /> : <AlertCircle size={24} className="text-danger" />}
+            <div className="flex-grow-1">
+              <div className="fw-700 text-white small uppercase letter-spacing-1">{message.type === 'success' ? 'Operation Successful' : 'Error Occurred'}</div>
+              <div className="text-dimmed small">{message.text}</div>
+            </div>
+            <button className="btn-close btn-close-white m-0" onClick={() => setMessage(null)} />
+          </div>
         </div>
       )}
 
       <div className="row g-4">
-        {/* ── ADMIN: CTC Form ── */}
+        {/* ── ADMIN: Employee CTC Directory ── */}
         {isAdmin && (
-          <div className="col-md-6 mx-auto no-print">
-            <div className="premium-card p-4" style={{ background: 'var(--midnight-card)' }}>
-              <h5 className="text-white fw-700 mb-1 d-flex align-items-center gap-2">
-                <DollarSign size={18} className="text-cyan" /> Configure CTC
-              </h5>
-              <p className="text-dimmed small mb-4">Set annual CTC — payslips from Jan 2026 will be auto-generated.</p>
-
-              <form onSubmit={handleSetCtc}>
-                <div className="mb-3">
-                  <label className="text-dimmed small fw-600 mb-2 d-block">Select Employee</label>
-                  <select
-                    className="form-select text-white"
-                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}
-                    value={selectedEmp}
-                    onChange={e => setSelectedEmp(e.target.value)}
-                    required
-                  >
-                    <option value="" className="bg-dark">Choose employee…</option>
-                    {employees.map(emp => (
-                      <option key={emp.id} value={emp.id} className="bg-dark">{emp.name} — {emp.department}</option>
+          <div className="col-12 no-print">
+            <div className="premium-card">
+              <div className="premium-card-header bg-transparent border-bottom border-secondary border-opacity-10 py-4 d-flex justify-content-between align-items-center">
+                <h5 className="text-white fw-800 mb-0 d-flex align-items-center gap-2">
+                  <DollarSign size={20} className="text-cyan" />
+                  Employee CTC Directory
+                </h5>
+                <span className="badge-premium badge-premium-cyan">{employees.length} TOTAL</span>
+              </div>
+              <div className="table-responsive">
+                <table className="table table-dark table-hover align-middle mb-0">
+                  <thead>
+                    <tr className="border-bottom border-secondary border-opacity-10">
+                      <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1">Employee</th>
+                      <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1">Position & Dept</th>
+                      <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1 text-end">Annual CTC</th>
+                      <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1 text-center">Status</th>
+                      <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1 text-end">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {employees.filter(e => e.role !== 'admin').map(emp => (
+                      <tr key={emp.id} className="border-bottom border-secondary border-opacity-05">
+                        <td className="px-4 py-4">
+                          <div className="d-flex align-items-center gap-3">
+                            <div className="user-avatar-sm" style={{ width: 42, height: 42, fontSize: '1rem' }}>
+                              {emp.name.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="text-white fw-700 small">{emp.name}</div>
+                              <div className="text-dimmed x-small">{emp.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="text-white small fw-600">{emp.position || 'N/A'}</div>
+                          <div className="text-dimmed x-small">{emp.department || 'General'}</div>
+                        </td>
+                        <td className="px-4 py-4 text-end">
+                          <div className="text-white fw-800 h6 mb-0 font-monospace">{fmt(emp.ctc || 0)}</div>
+                          <div className="text-dimmed x-small">Monthly: {fmt((emp.ctc || 0) / 12)}</div>
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          <span className={`badge-premium ${emp.ctc ? 'badge-premium-success' : 'badge-premium-warning'}`}>
+                            {emp.ctc ? 'CONFIGURED' : 'PENDING'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-end">
+                          <button 
+                            onClick={() => openEditCtc(emp)}
+                            className="btn btn-premium-cyan btn-sm px-4 py-2"
+                          >
+                            Update Package
+                          </button>
+                        </td>
+                      </tr>
                     ))}
-                  </select>
-                </div>
-
-                <div className="mb-4">
-                  <label className="text-dimmed small fw-600 mb-2 d-block">Annual CTC (INR)</label>
-                  <div className="input-group">
-                    <span className="input-group-text text-cyan fw-700"
-                      style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.2)', borderRight: 'none', borderRadius: '10px 0 0 10px' }}>₹</span>
-                    <input
-                      type="number" min="0" step="1000"
-                      className="form-control text-white"
-                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(6,182,212,0.2)', borderLeft: 'none', borderRadius: '0 10px 10px 0' }}
-                      value={ctc}
-                      onChange={e => setCtc(e.target.value)}
-                      placeholder="e.g. 600000"
-                      required
-                    />
-                  </div>
-                  {ctc && (
-                    <div className="mt-3 p-3 rounded-3" style={{ background: 'rgba(6,182,212,0.05)', border: '1px solid rgba(6,182,212,0.1)' }}>
-                      <p className="text-dimmed small mb-1 fw-600">Salary Breakdown Preview</p>
-                      {(() => {
-                        const ctcVal = parseFloat(ctc || '0');
-                        const bMo = (ctcVal * 0.5) / 12;
-                        const hMo = (ctcVal * 0.2) / 12;
-                        const aMo = (ctcVal * 0.05) / 12;
-                        const cMo = 1600;
-                        const sMo = (ctcVal / 12) - (bMo + hMo + aMo + cMo);
-                        return (
-                          <>
-                            <div className="d-flex justify-content-between small mb-1">
-                              <span className="text-dimmed">Basic (50%)</span>
-                              <span className="text-white">{fmt(bMo)}/mo</span>
-                            </div>
-                            <div className="d-flex justify-content-between small mb-1">
-                              <span className="text-dimmed">HRA (20%)</span>
-                              <span className="text-white">{fmt(hMo)}/mo</span>
-                            </div>
-                            <div className="d-flex justify-content-between small mb-1">
-                              <span className="text-dimmed">Allowances (5%)</span>
-                              <span className="text-white">{fmt(aMo)}/mo</span>
-                            </div>
-                            <div className="d-flex justify-content-between small mb-1">
-                              <span className="text-dimmed">Conveyance</span>
-                              <span className="text-white">{fmt(cMo)}/mo</span>
-                            </div>
-                            <div className="d-flex justify-content-between small">
-                              <span className="text-dimmed">Special Allowance</span>
-                              <span className="text-white">{fmt(sMo)}/mo</span>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
-                </div>
-
-                <button type="submit" className="btn btn-premium-primary w-100">
-                  Set Salary & Generate Payslips
-                </button>
-              </form>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
 
-        {/* ── EMPLOYEE: Salary Structure ── */}
+        {/* ── EMPLOYEE: My Earnings ── */}
         {!isAdmin && (
           <div className="col-12 no-print">
             {salaryInfo && salaryInfo.ctc > 0 ? (
-              <div className="row g-3 mb-2">
+              <div className="row g-4 mb-2">
                 {[
-                  { label: 'Annual CTC', value: fmt(salaryInfo.ctc), color: 'text-cyan' },
-                  { label: 'Monthly Gross', value: fmt(salaryInfo.ctc / 12), color: 'text-white' },
-                  { label: 'Basic / mo', value: fmt(salaryInfo.basic / 12), color: 'text-white' },
-                  { label: 'HRA / mo', value: fmt(salaryInfo.hra / 12), color: 'text-white' },
-                ].map(card => (
-                  <div key={card.label} className="col-6 col-md">
-                    <div className="premium-card p-3 text-center" style={{ background: 'var(--midnight-card)' }}>
-                      <p className="text-dimmed small mb-1">{card.label}</p>
-                      <p className={`fw-800 mb-0 ${card.color}`}>{card.value}</p>
+                  { label: 'Annual CTC', value: fmt(salaryInfo.ctc), icon: <DollarSign size={24} />, color: 'var(--accent-cyan)' },
+                  { label: 'Monthly Gross', value: fmt(salaryInfo.ctc / 12), icon: <TrendingUp size={24} />, color: 'var(--success)' },
+                  { label: 'Basic Salary', value: fmt(salaryInfo.basic / 12), icon: <Briefcase size={24} />, color: '#fff' },
+                  { label: 'HRA Benefit', value: fmt(salaryInfo.hra / 12), icon: <FileText size={24} />, color: '#fff' },
+                ].map((card, idx) => (
+                  <div key={card.label} className="col-md-6 col-xl-3">
+                    <div className="premium-stat-card fade-in" style={{ animationDelay: `${idx * 0.1}s` }}>
+                      <div className="premium-stat-icon" style={{ color: card.color, background: `${card.color}15`, borderColor: `${card.color}30` }}>
+                        {card.icon}
+                      </div>
+                      <div className="premium-stat-number" style={{ fontSize: '1.75rem' }}>{card.value}</div>
+                      <div className="premium-stat-label">{card.label}</div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="alert d-flex align-items-center gap-2 mb-4"
-                style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.15)', borderRadius: 12, color: '#fbbf24' }}>
-                <AlertCircle size={18} />
-                Your salary structure hasn't been configured yet. Please contact HR.
+              <div className="premium-card p-5 text-center fade-in">
+                <AlertCircle size={64} className="text-warning mb-4 opacity-50" />
+                <h4 className="text-white fw-800">Earnings Not Available</h4>
+                <p className="text-dimmed mb-0 mx-auto" style={{ maxWidth: 400 }}>Your compensation structure is currently being finalized by HR. Please check back shortly.</p>
               </div>
             )}
           </div>
         )}
 
-        {/* ── Payslip List ── */}
+        {/* ── Payslip Explorer ── */}
         {!isAdmin && (
           <div className="col-12">
-            <div className="premium-card" style={{ background: 'var(--midnight-card)' }}>
-              <div className="d-flex align-items-center justify-content-between p-4 pb-2">
-                <h5 className="text-white fw-700 m-0 d-flex align-items-center gap-2">
-                  <Calendar size={18} className="text-cyan" />
-                  My Payslips
+            <div className="premium-card fade-in" style={{ animationDelay: '0.4s' }}>
+              <div className="premium-card-header bg-transparent p-4 border-bottom border-secondary border-opacity-10 d-flex justify-content-between align-items-center">
+                <h5 className="text-white fw-800 mb-0 d-flex align-items-center gap-2">
+                  <Calendar size={20} className="text-cyan" />
+                  Historical Payslips
                 </h5>
-                <span className="badge rounded-pill px-3 py-2"
-                  style={{ background: 'rgba(6,182,212,0.1)', color: 'var(--accent-cyan)', fontSize: 12 }}>
-                  {payslips.length} records
-                </span>
+                <span className="badge-premium badge-premium-indigo">{payslips.length} RECORDS</span>
               </div>
 
               {payslips.length === 0 ? (
-                <div className="text-center py-5">
-                  <FileText size={40} className="text-dimmed mb-3" />
-                  <p className="text-dimmed">No payslips available yet.</p>
+                <div className="premium-card-body text-center py-5">
+                  <div className="mb-4">
+                    <FileText size={56} className="text-dimmed opacity-10" />
+                  </div>
+                  <h5 className="text-white fw-700">No Payslips Found</h5>
+                  <p className="text-dimmed small mb-0">Monthly statements will appear here after payroll processing.</p>
                 </div>
               ) : (
                 <div className="table-responsive">
                   <table className="table table-dark table-hover align-middle mb-0">
                     <thead>
-                      <tr style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                        <th className="px-4 text-dimmed fw-600 small">Pay Period</th>
-                        <th className="px-4 text-dimmed fw-600 small text-end">Gross Pay</th>
-                        <th className="px-4 text-dimmed fw-600 small text-end">Deductions</th>
-                        <th className="px-4 text-dimmed fw-600 small text-end">Net Pay</th>
-                        <th className="px-4 text-dimmed fw-600 small text-center no-print">Action</th>
+                      <tr className="border-bottom border-secondary border-opacity-10">
+                        <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1">Pay Period</th>
+                        <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1 text-end">Gross Pay</th>
+                        <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1 text-end">Deductions</th>
+                        <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1 text-end">Net Salary</th>
+                        <th className="px-4 py-4 text-dimmed small fw-700 uppercase letter-spacing-1 text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {payslips.map((slip: any) => (
-                        <tr key={slip.id} style={{ borderTop: '1px solid rgba(255,255,255,0.03)' }}>
-                          <td className="px-4">
-                            <p className="text-white fw-600 mb-0 small">{MONTH_NAMES[parseInt(slip.month)]} {slip.year}</p>
+                        <tr key={slip.id} className="border-bottom border-secondary border-opacity-05">
+                          <td className="px-4 py-4">
+                            <div className="d-flex align-items-center gap-3">
+                              <div className="p-2 rounded-3" style={{ background: 'rgba(255,255,255,0.03)', color: 'var(--accent-cyan)' }}>
+                                <Calendar size={18} />
+                              </div>
+                              <div className="text-white fw-800 small text-uppercase">
+                                {MONTH_NAMES[parseInt(slip.month)]} {slip.year}
+                              </div>
+                            </div>
                           </td>
-                          <td className="px-4 text-end">
-                            <span className="text-white fw-600 small font-monospace">{fmt(slip.monthly_gross)}</span>
+                          <td className="px-4 py-4 text-end">
+                            <span className="text-secondary small font-monospace">{fmt(slip.monthly_gross)}</span>
                           </td>
-                          <td className="px-4 text-end">
-                            <span className="small font-monospace" style={{ color: '#ef4444' }}>
-                              {fmt(slip.total_deductions || slip.lop_deduction)}
-                            </span>
+                          <td className="px-4 py-4 text-end">
+                            <span className="text-danger small font-monospace">-{fmt(slip.total_deductions || slip.lop_deduction)}</span>
                           </td>
-                          <td className="px-4 text-end">
-                            <span className="fw-800 font-monospace" style={{ color: 'var(--accent-cyan)' }}>{fmt(slip.net_salary)}</span>
+                          <td className="px-4 py-4 text-end">
+                            <span className="text-cyan fw-900 h6 mb-0 font-monospace">{fmt(slip.net_salary)}</span>
                           </td>
-                          <td className="px-4 text-center no-print">
+                          <td className="px-4 py-4 text-center">
                             <button
                               onClick={() => setActiveSlip(slip)}
-                              className="btn btn-sm d-inline-flex align-items-center gap-1 px-3"
-                              style={{ background: 'rgba(6,182,212,0.1)', color: 'var(--accent-cyan)', border: '1px solid rgba(6,182,212,0.2)', borderRadius: 8, fontSize: 12 }}
+                              className="btn btn-premium-secondary btn-sm px-4 py-2 d-flex align-items-center gap-2 mx-auto"
                             >
-                              <Eye size={13} /> View
+                              <Eye size={14} /> View Details
                             </button>
                           </td>
                         </tr>
@@ -346,161 +346,198 @@ const Payroll: React.FC = () => {
         )}
       </div>
 
-      {/* ── Payslip Modal ── */}
+      {/* ── Payslip Detailed Modal ── */}
       {activeSlip && (
-        <div
-          className="no-print animate-fade-in"
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 1050, overflowY: 'auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '40px 16px' }}
-        >
-          <div style={{ width: '100%', maxWidth: 750, background: '#ffffff', borderRadius: 20, overflow: 'hidden', border: '1px solid #e0e0e0', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)' }}>
-            {/* Clean Modal Header Bar */}
-            <div className="d-flex align-items-center justify-content-between px-4 py-3" style={{ background: '#f8f9fa', borderBottom: '1px solid #e9ecef' }}>
-              <span className="text-dark fw-800" style={{ fontSize: 16 }}>Payslip Preview</span>
-              <div className="d-flex gap-2">
-                <button onClick={handlePrint}
-                  className="d-flex align-items-center gap-2 px-3 fw-600"
-                  style={{ height: 36, background: '#003366', color: '#ffffff', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
-                  <Download size={14} /> Download PDF
-                </button>
-                <button 
-                  onClick={() => setActiveSlip(null)}
-                  className="d-flex align-items-center justify-content-center"
-                  style={{ width: 36, height: 36, background: '#ffefef', border: '1px solid #ffccd5', borderRadius: 8, color: '#e03131', cursor: 'pointer' }}>
-                  <X size={18} style={{ strokeWidth: 2.5 }} />
-                </button>
+        <div className="modal d-block no-print" style={{ background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(12px)', zIndex: 1050 }}>
+          <div className="modal-dialog modal-xl modal-dialog-centered">
+            <div className="modal-content border-0 shadow-lg overflow-hidden" style={{ borderRadius: '28px' }}>
+              <div className="modal-header border-bottom border-secondary border-opacity-10 p-4 flex-wrap gap-3 align-items-center" style={{ background: 'var(--midnight-elevated)' }}>
+                <h5 className="modal-title text-white fw-800 d-flex align-items-center gap-3 me-3">
+                  <div className="p-2 rounded-3 bg-cyan bg-opacity-10 text-cyan">
+                    <FileText size={20} />
+                  </div>
+                  Earnings Statement: {MONTH_NAMES[parseInt(activeSlip.month)]} {activeSlip.year}
+                </h5>
+                <div className="d-flex align-items-center gap-3 ms-auto">
+                  <button onClick={handlePrint} className="btn btn-premium-cyan">
+                    <Download size={18} className="me-2" /> Download Statement
+                  </button>
+                  <button onClick={() => setActiveSlip(null)} className="btn-close btn-close-white m-0" />
+                </div>
+              </div>
+
+              <div className="modal-body p-0" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+                <style>{`
+                  .payslip-screen-view { color: #000; font-family: 'Inter', sans-serif; }
+                  .payslip-screen-view .payslip-header { border-bottom: 2px solid #000; margin-bottom: 30px; padding-bottom: 20px; }
+                  .payslip-screen-view .company-name { font-size: 24px; font-weight: 800; color: #003366; }
+                  .payslip-screen-view .section-title { background: #f0f4f8; padding: 10px 15px; font-weight: 700; font-size: 14px; margin: 20px 0 10px 0; border-left: 4px solid #003366; color: #000; }
+                  .payslip-screen-view .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; }
+                  .payslip-screen-view .info-item { display: flex; justify-content: space-between; border-bottom: 1px dashed #ddd; padding-bottom: 5px; }
+                  .payslip-screen-view .info-label { font-size: 11px; color: #666; font-weight: 600; text-transform: uppercase; }
+                  .payslip-screen-view .info-value { font-size: 12px; font-weight: 700; color: #000; }
+                  .payslip-screen-view .salary-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                  .payslip-screen-view .salary-table th { background: #003366; color: #fff; padding: 12px 15px; text-align: left; font-size: 12px; }
+                  .payslip-screen-view .salary-table td { padding: 10px 15px; border-bottom: 1px solid #eee; font-size: 12px; color: #000; }
+                  .payslip-screen-view .salary-table tr:last-child td { border-bottom: 2px solid #003366; font-weight: 800; background: #f8fafc; }
+                  .payslip-screen-view .total-row td { background: #f0f4f8; font-weight: 800; color: #000; }
+                  .payslip-screen-view .net-pay-box { background: #003366; color: #fff; padding: 20px; border-radius: 8px; margin-top: 30px; display: flex; justify-content: space-between; align-items: center; }
+                  .payslip-screen-view .net-pay-label { font-size: 14px; font-weight: 600; }
+                  .payslip-screen-view .net-pay-value { font-size: 24px; font-weight: 800; }
+                `}</style>
+                <div id="payslip-printable" className="bg-white p-5 payslip-screen-view">
+                  {/* Clean White Background for Printable Logic */}
+                  <div className="payslip-header d-flex justify-content-between align-items-start">
+                    <div>
+                      <div className="company-name">WebAnatomy HRMS</div>
+                      <div style={{ color: '#666', fontSize: '13px' }}>Enterprise Human Resource Management System</div>
+                    </div>
+                    <div className="text-end">
+                      <div style={{ fontSize: '24px', fontWeight: '800', color: '#003366' }}>PAYSLIP</div>
+                      <div style={{ fontWeight: '600' }}>{MONTH_NAMES[parseInt(activeSlip.month)]} {activeSlip.year}</div>
+                    </div>
+                  </div>
+
+                  <div className="section-title">EMPLOYEE INFORMATION</div>
+                  <div className="info-grid">
+                    <div className="info-item"><span className="info-label">Employee Name</span><span className="info-value">{activeSlip.employee_name || user?.name}</span></div>
+                    <div className="info-item"><span className="info-label">Annual CTC</span><span className="info-value">{fmt(activeSlip.ctc)}</span></div>
+                    <div className="info-item"><span className="info-label">Department</span><span className="info-value">{activeSlip.department || 'N/A'}</span></div>
+                    <div className="info-item"><span className="info-label">Position</span><span className="info-value">{activeSlip.position || 'N/A'}</span></div>
+                  </div>
+
+                  <div className="section-title">SALARY BREAKDOWN</div>
+                  {(() => {
+                    const basicMo = parseFloat(activeSlip.basic_monthly || 0);
+                    const hraMo   = parseFloat(activeSlip.hra_monthly || 0);
+                    const specMo  = parseFloat(activeSlip.special_allowance || 0);
+                    const grossMo = parseFloat(activeSlip.monthly_gross || 0);
+                    
+                    const pfMo    = parseFloat(activeSlip.pf_deduction || 0);
+                    const ptMo    = parseFloat(activeSlip.pt_deduction || 0);
+                    const lopMo   = parseFloat(activeSlip.lop_deduction || 0);
+                    const absMo   = parseFloat(activeSlip.absent_deduction || 0);
+                    const lateMo  = parseFloat(activeSlip.late_deduction || 0);
+                    const totalDed = pfMo + ptMo + lopMo + absMo + lateMo;
+
+                    return (
+                      <>
+                        <table className="salary-table">
+                          <thead>
+                            <tr>
+                              <th>EARNINGS DESCRIPTION</th>
+                              <th className="text-end">MONTHLY COMPONENT</th>
+                              <th className="text-end">ANNUAL PRO-RATA</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr><td>Basic Pay</td><td className="text-end">{fmt(basicMo)}</td><td className="text-end">{fmt(basicMo * 12)}</td></tr>
+                            <tr><td>House Rent Allowance</td><td className="text-end">{fmt(hraMo)}</td><td className="text-end">{fmt(hraMo * 12)}</td></tr>
+                            <tr><td>Special Allowance</td><td className="text-end">{fmt(specMo)}</td><td className="text-end">{fmt(specMo * 12)}</td></tr>
+                            <tr className="total-row"><td>TOTAL GROSS EARNINGS</td><td className="text-end">{fmt(grossMo)}</td><td className="text-end">{fmt(grossMo * 12)}</td></tr>
+                          </tbody>
+                        </table>
+
+                        <div className="section-title">DEDUCTIONS & ADJUSTMENTS</div>
+                        <table className="salary-table">
+                          <thead>
+                            <tr>
+                              <th>DEDUCTION DESCRIPTION</th>
+                              <th className="text-end">ADJUSTMENT TYPE</th>
+                              <th className="text-end">AMOUNT DEDUCTED</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr><td>Professional Tax (PT)</td><td className="text-end">Statutory</td><td className="text-end">{fmt(ptMo)}</td></tr>
+                            {pfMo > 0 && <tr><td>Provident Fund (PF)</td><td className="text-end">Social Security</td><td className="text-end">{fmt(pfMo)}</td></tr>}
+                            {lopMo > 0 && <tr><td>Loss of Pay (LOP)</td><td className="text-end">Attendance</td><td className="text-end">{fmt(lopMo)}</td></tr>}
+                            {absMo > 0 && <tr><td>Absent Penalty</td><td className="text-end">Leave Policy</td><td className="text-end">{fmt(absMo)}</td></tr>}
+                            {lateMo > 0 && <tr><td>Late Login Penalty</td><td className="text-end">Punctuality</td><td className="text-end">{fmt(lateMo)}</td></tr>}
+                            <tr className="total-row"><td>TOTAL DEDUCTIONS</td><td colSpan={2} className="text-end" style={{ color: '#d32f2f' }}>{fmt(totalDed)}</td></tr>
+                          </tbody>
+                        </table>
+
+                        <div className="net-pay-box">
+                          <div className="net-pay-label">NET TAKE HOME SALARY</div>
+                          <div className="net-pay-value">{fmt(activeSlip.net_salary)}</div>
+                        </div>
+                        
+                        <div style={{ marginTop: '40px', fontSize: '10px', color: '#888', borderTop: '1px solid #eee', paddingTop: '10px' }}>
+                          * This is a computer generated document and does not require a signature.
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
 
-            {/* Printable Content Section */}
-            <div id="payslip-printable" className="p-4" style={{ color: '#000000' }}>
-
-              {/* Company Logo / Header */}
-              <div className="d-flex justify-content-between align-items-center mb-4" style={{ borderBottom: '2px solid #000', paddingBottom: 10 }}>
-                <div>
-                  <h3 style={{ color: '#003366', fontWeight: 800, margin: 0 }}>WebAnatomy HRMS</h3>
-                  <p style={{ color: '#555', fontSize: 13, margin: 0 }}>Corporate Employee Salary Statement</p>
-                </div>
-                <div className="text-end">
-                  <h5 style={{ margin: 0, fontWeight: 700 }}>PAYSLIP</h5>
-                  <span style={{ fontSize: 12, color: '#666' }}>{MONTH_NAMES[parseInt(activeSlip.month)]} {activeSlip.year}</span>
-                </div>
+      {/* ── CTC Adjustment Modal ── */}
+      {editCtcModal.show && (
+        <div className="modal d-block no-print" style={{ background: 'rgba(0,0,0,0.9)', backdropFilter: 'blur(10px)', zIndex: 1060 }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0 shadow-lg" style={{ borderRadius: '24px' }}>
+              <div className="modal-header border-bottom border-secondary border-opacity-10 p-4">
+                <h5 className="modal-title text-white fw-800 d-flex align-items-center gap-2">
+                  <User size={20} className="text-cyan" />
+                  Salary Configuration: {editCtcModal.emp?.name}
+                </h5>
+                <button type="button" className="btn-close btn-close-white" onClick={() => setEditCtcModal({show: false, emp: null})}></button>
               </div>
+              <form onSubmit={handleSetCtc}>
+                <div className="modal-body p-4">
+                  <div className="mb-4">
+                    <label className="text-dimmed small fw-700 uppercase letter-spacing-1 mb-3 d-block">Annual Package (INR)</label>
+                    <div className="position-relative">
+                      <span className="position-absolute text-secondary fw-bold" style={{ left: '16px', top: '50%', transform: 'translateY(-50%)' }}>₹</span>
+                      <input
+                        type="number" min="0" step="1000"
+                        className="form-control premium-input ps-5"
+                        value={newCtc}
+                        onChange={e => setNewCtc(e.target.value)}
+                        placeholder="e.g. 650000"
+                        required
+                        autoFocus
+                      />
+                    </div>
+                  </div>
 
-              {/* Employee & Pay Period Information */}
-              <div style={{ background: '#f4f4f4', padding: '15px 20px', borderRadius: 8, marginBottom: 25, border: '1px solid #ccc' }}>
-                <div className="row g-2">
-                  <div className="col-6">
-                    <span style={{ fontSize: 11, color: '#555', fontWeight: 600 }}>EMPLOYEE NAME:</span>
-                    <span style={{ fontSize: 13, color: '#000', fontWeight: 700, marginLeft: 8 }}>{activeSlip.employee_name || user?.name}</span>
-                  </div>
-                  <div className="col-6 text-end">
-                    <span style={{ fontSize: 11, color: '#555', fontWeight: 600 }}>ANNUAL CTC:</span>
-                    <span style={{ fontSize: 13, color: '#000', fontWeight: 700, marginLeft: 8 }}>{fmt(activeSlip.ctc)}</span>
-                  </div>
-                  <div className="col-6">
-                    <span style={{ fontSize: 11, color: '#555', fontWeight: 600 }}>DEPARTMENT:</span>
-                    <span style={{ fontSize: 12, color: '#000', fontWeight: 700, marginLeft: 8 }}>{activeSlip.department || 'N/A'}</span>
-                  </div>
-                  <div className="col-6 text-end">
-                    <span style={{ fontSize: 11, color: '#555', fontWeight: 600 }}>POSITION:</span>
-                    <span style={{ fontSize: 12, color: '#000', fontWeight: 700, marginLeft: 8 }}>{activeSlip.position || 'N/A'}</span>
-                  </div>
+                  {newCtc && (
+                    <div className="p-4 rounded-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div className="text-cyan small fw-800 uppercase letter-spacing-1 mb-3">Live Pro-rata Breakdown</div>
+                      {(() => {
+                        const val = parseFloat(newCtc || '0');
+                        const mGross = val / 12;
+                        const mBasic = (val * 0.5) / 12;
+                        return (
+                          <div className="d-flex flex-column gap-3">
+                            <div className="d-flex justify-content-between align-items-center">
+                              <span className="text-dimmed small fw-600">Monthly Gross</span>
+                              <span className="text-white fw-800">{fmt(mGross)}</span>
+                            </div>
+                            <div className="d-flex justify-content-between align-items-center">
+                              <span className="text-dimmed small fw-600">Basic Pay Component</span>
+                              <span className="text-white fw-700">{fmt(mBasic)}</span>
+                            </div>
+                            <div className="d-flex justify-content-between align-items-center">
+                              <span className="text-dimmed small fw-600">Allowance Buffer</span>
+                              <span className="text-white fw-700">{fmt(mGross - mBasic)}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
-              </div>
-
-              {/* Complete Breakdown Table */}
-              {(() => {
-                const curCtc = parseFloat(activeSlip.ctc || 0);
-                const basicYr = curCtc * 0.50;
-                const hraYr = curCtc * 0.20;
-                const allowancesYr = curCtc * 0.05;
-                const conveyanceYr = 19200;
-                const specialYr = curCtc - (basicYr + hraYr + allowancesYr + conveyanceYr);
-
-                const basicMo = basicYr / 12;
-                const hraMo = hraYr / 12;
-                const allowancesMo = allowancesYr / 12;
-                const conveyanceMo = conveyanceYr / 12;
-                const specialMo = specialYr / 12;
-
-                const grossPayYr = curCtc;
-                const grossPayMo = curCtc / 12;
-
-                const ptYr = 2400;
-                const ptMo = 200;
-
-                const lopDeduction = parseFloat(activeSlip.lop_deduction || 0);
-                const absentDeduction = parseFloat(activeSlip.absent_deduction || 0);
-                const lateDeduction = parseFloat(activeSlip.late_deduction || 0);
-
-                const totalDeductionsMo = ptMo + lopDeduction + absentDeduction + lateDeduction;
-                const totalDeductionsYr = ptYr + lopDeduction + absentDeduction + lateDeduction; // do not multiply monthly penalties by 12
-
-                const netPaidMo = grossPayMo - totalDeductionsMo + parseFloat(activeSlip.expense_reimbursement || 0);
-                const netPaidYr = grossPayYr - totalDeductionsYr + parseFloat(activeSlip.expense_reimbursement || 0); // do not multiply monthly expenses by 12
-
-                return (
-                  <div className="table-responsive" style={{ border: '1px solid #000' }}>
-                    <table className="table table-bordered mb-0" style={{ borderColor: '#000', fontSize: 12, color: '#000' }}>
-                      <thead style={{ background: '#c6d9f1' }}>
-                        <tr style={{ fontWeight: 'bold', borderBottom: '2px solid #000' }}>
-                          <th style={{ background: '#c6d9f1', color: '#000', borderRight: '1px solid #000' }}>SALARY DETAILS</th>
-                          <th className="text-end" style={{ background: '#c6d9f1', color: '#000', borderRight: '1px solid #000' }}>Amount Per Annum (in Rs.)</th>
-                          <th className="text-end" style={{ background: '#c6d9f1', color: '#000' }}>Amount Per Month (in Rs.)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr><td style={{ borderRight: '1px solid #000' }}>Basic</td><td className="text-end font-monospace" style={{ borderRight: '1px solid #000' }}>{fmt(basicYr)}</td><td className="text-end font-monospace">{fmt(basicMo)}</td></tr>
-                        <tr><td style={{ borderRight: '1px solid #000' }}>HRA</td><td className="text-end font-monospace" style={{ borderRight: '1px solid #000' }}>{fmt(hraYr)}</td><td className="text-end font-monospace">{fmt(hraMo)}</td></tr>
-                        <tr><td style={{ borderRight: '1px solid #000' }}>Other Allowances</td><td className="text-end font-monospace" style={{ borderRight: '1px solid #000' }}>{fmt(allowancesYr)}</td><td className="text-end font-monospace">{fmt(allowancesMo)}</td></tr>
-                        <tr><td style={{ borderRight: '1px solid #000' }}>Conveyance</td><td className="text-end font-monospace" style={{ borderRight: '1px solid #000' }}>{fmt(conveyanceYr)}</td><td className="text-end font-monospace font-monospace">{fmt(conveyanceMo)}</td></tr>
-                        <tr><td style={{ borderRight: '1px solid #000' }}>Special Allowance</td><td className="text-end font-monospace" style={{ borderRight: '1px solid #000' }}>{fmt(specialYr)}</td><td className="text-end font-monospace font-monospace">{fmt(specialMo)}</td></tr>
-                        
-                        <tr style={{ background: '#d9d9d9', fontWeight: 'bold' }}>
-                          <td style={{ borderRight: '1px solid #000' }}>Total</td>
-                          <td className="text-end font-monospace" style={{ borderRight: '1px solid #000' }}>{fmt(grossPayYr)}</td>
-                          <td className="text-end font-monospace">{fmt(grossPayMo)}</td>
-                        </tr>
-
-                        <tr style={{ background: '#d9d9d9', fontWeight: 'bold' }}>
-                          <td style={{ borderRight: '1px solid #000' }}>Gross Pay</td>
-                          <td className="text-end font-monospace" style={{ borderRight: '1px solid #000' }}>{fmt(grossPayYr)}</td>
-                          <td className="text-end font-monospace">{fmt(grossPayMo)}</td>
-                        </tr>
-
-                        <tr style={{ background: '#f4f4f4', fontWeight: 'bold', borderTop: '2px solid #000' }}>
-                          <td colSpan={3} className="text-center" style={{ fontSize: 11, letterSpacing: '1px' }}>Deductions</td>
-                        </tr>
-                        <tr><td style={{ borderRight: '1px solid #000' }}>Professional Tax</td><td className="text-end font-monospace font-monospace" style={{ borderRight: '1px solid #000' }}>{fmt(ptYr)}</td><td className="text-end font-monospace font-monospace">{fmt(ptMo)}</td></tr>
-                        
-                        {(lopDeduction > 0 || absentDeduction > 0 || lateDeduction > 0) && (
-                          <tr style={{ color: '#900' }}>
-                            <td style={{ borderRight: '1px solid #000' }}>Penalty (LOP/Absent/Late)</td>
-                            <td className="text-end font-monospace" style={{ borderRight: '1px solid #000' }}>{fmt(totalDeductionsYr - ptYr)}</td>
-                            <td className="text-end font-monospace">{fmt(totalDeductionsMo - ptMo)}</td>
-                          </tr>
-                        )}
-
-                        {parseFloat(activeSlip.expense_reimbursement || 0) > 0 && (
-                          <tr style={{ color: '#060', fontWeight: 'bold' }}>
-                            <td style={{ borderRight: '1px solid #000' }}>Expense Reimbursements</td>
-                            <td className="text-end font-monospace" style={{ borderRight: '1px solid #000' }}>{fmt(parseFloat(activeSlip.expense_reimbursement))}</td>
-                            <td className="text-end font-monospace">{fmt(parseFloat(activeSlip.expense_reimbursement))}</td>
-                          </tr>
-                        )}
-
-                        <tr style={{ background: '#b4c6e7', fontWeight: 'bold', fontSize: 13, borderTop: '2px solid #000' }}>
-                          <td style={{ borderRight: '1px solid #000' }}>Net Paid</td>
-                          <td className="text-end font-monospace" style={{ borderRight: '1px solid #000' }}>{fmt(netPaidYr)}</td>
-                          <td className="text-end font-monospace">{fmt(netPaidMo)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                );
-              })()}
+                <div className="modal-footer border-top border-secondary border-opacity-10 p-4">
+                  <button type="button" className="btn btn-premium-secondary" onClick={() => setEditCtcModal({show: false, emp: null})}>Cancel</button>
+                  <button type="submit" className="btn btn-premium-cyan px-4">Update Compensation</button>
+                </div>
+              </form>
             </div>
-            {/* End printable */}
           </div>
         </div>
       )}

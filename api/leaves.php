@@ -9,7 +9,9 @@ $input = json_decode(file_get_contents('php://input'), true);
 
 switch($method) {
     case 'GET':
-        if (isset($_GET['employee_id'])) {
+        if (isset($_GET['action']) && $_GET['action'] === 'balances') {
+            getLeaveBalances($db, $_GET['employee_id'] ?? null);
+        } elseif (isset($_GET['employee_id'])) {
             getEmployeeLeaves($db, $_GET['employee_id']);
         } else {
             getAllLeaves($db);
@@ -19,7 +21,9 @@ switch($method) {
         createLeaveRequest($db, $input);
         break;
     case 'PUT':
-        if (isset($_GET['id'])) {
+        if (isset($_GET['action']) && $_GET['action'] === 'update-balance') {
+            updateLeaveBalance($db, $input);
+        } elseif (isset($_GET['id'])) {
             if (isset($_GET['action']) && $_GET['action'] === 'approve') {
                 approveLeave($db, $_GET['id'], $input);
             } else {
@@ -42,7 +46,7 @@ switch($method) {
 
 function getAllLeaves($db) {
     try {
-        $query = "SELECT lr.*, u_emp.role as employee_role, u_app.name as approved_by_name, u_man.name as manager_approved_by_name 
+        $query = "SELECT lr.*, u_emp.role as employee_role, u_emp.department, u_app.name as approved_by_name, u_man.name as manager_approved_by_name 
                   FROM leave_requests lr 
                   JOIN users u_emp ON lr.employee_id = u_emp.id
                   LEFT JOIN users u_app ON lr.approved_by = u_app.id 
@@ -61,8 +65,9 @@ function getAllLeaves($db) {
 
 function getEmployeeLeaves($db, $employeeId) {
     try {
-        $query = "SELECT lr.*, u.name as approved_by_name, um.name as manager_approved_by_name 
+        $query = "SELECT lr.*, u_emp.department, u.name as approved_by_name, um.name as manager_approved_by_name 
                   FROM leave_requests lr 
+                  JOIN users u_emp ON lr.employee_id = u_emp.id
                   LEFT JOIN users u ON lr.approved_by = u.id 
                   LEFT JOIN users um ON lr.manager_approved_by = um.id
                   WHERE lr.employee_id = :employee_id 
@@ -242,7 +247,7 @@ function approveLeave($db, $id, $input) {
 
                     if ($column) {
                         $year = date('Y');
-                        $quarter = ceil(date('n') / 3);
+                        $quarter = 1; // Treat as Annual
 
                         $checkBal = "SELECT id FROM leave_balances WHERE employee_id = :eid AND year = :y AND quarter = :q";
                         $cbStmt = $db->prepare($checkBal);
@@ -356,6 +361,115 @@ function deleteLeaveRequest($db, $id) {
         }
     } catch(PDOException $e) {
         sendResponse(false, 'Failed to delete leave request: ' . $e->getMessage());
+    }
+}
+function getLeaveBalances($db, $employeeId = null) {
+    try {
+        $year = (int)date('Y');
+        $quarter = 1; // Treat as Annual
+
+        if ($employeeId) {
+            $query = "SELECT lb.*, u.name as employee_name, u.joining_date,
+                             COALESCE(lb.year, :y) as year, 
+                             COALESCE(lb.quarter, :q) as quarter,
+                             lb.sl, lb.cl, lb.pl,
+                             COALESCE(lb.used_sl, 0) as used_sl, 
+                             COALESCE(lb.used_cl, 0) as used_cl, 
+                             COALESCE(lb.used_pl, 0) as used_pl
+                      FROM users u 
+                      LEFT JOIN leave_balances lb ON u.id = lb.employee_id AND lb.year = :y AND lb.quarter = :q
+                      WHERE u.id = :eid";
+            $stmt = $db->prepare($query);
+            $stmt->execute([':eid' => $employeeId, ':y' => $year, ':q' => $quarter]);
+        } else {
+            $query = "SELECT u.id as employee_id, u.name as employee_name, u.department, u.joining_date,
+                             COALESCE(lb.year, :y) as year, 
+                             COALESCE(lb.quarter, :q) as quarter,
+                             lb.sl, lb.cl, lb.pl,
+                             COALESCE(lb.used_sl, 0) as used_sl, 
+                             COALESCE(lb.used_cl, 0) as used_cl, 
+                             COALESCE(lb.used_pl, 0) as used_pl
+                      FROM users u
+                      LEFT JOIN leave_balances lb ON u.id = lb.employee_id AND lb.year = :y AND lb.quarter = :q
+                      WHERE u.role != 'admin' AND u.active = 1
+                      ORDER BY u.name ASC";
+            $stmt = $db->prepare($query);
+            $stmt->execute([':y' => $year, ':q' => $quarter]);
+        }
+        $rows = $stmt->fetchAll();
+        $data = [];
+        foreach ($rows as $row) {
+            if ($row['sl'] === null) {
+                // Calculate dynamic quota
+                $joinDate = $row['joining_date'] ? new DateTime($row['joining_date']) : null;
+                $currentYear = (int)date('Y');
+                
+                if (!$joinDate || (int)$joinDate->format('Y') < $currentYear) {
+                    $row['sl'] = 4.0;
+                    $row['cl'] = 4.0;
+                    $row['pl'] = 4.0;
+                } else if ((int)$joinDate->format('Y') === $currentYear) {
+                    $joinMonth = (int)$joinDate->format('n');
+                    $quartersRemaining = 4 - ceil($joinMonth / 3) + 1;
+                    $row['sl'] = (float)$quartersRemaining;
+                    $row['cl'] = (float)$quartersRemaining;
+                    $row['pl'] = (float)$quartersRemaining;
+                } else {
+                    $row['sl'] = 0.0;
+                    $row['cl'] = 0.0;
+                    $row['pl'] = 0.0;
+                }
+            }
+            $data[] = $row;
+        }
+        sendResponse(true, 'Leave balances fetched', $data);
+    } catch (PDOException $e) {
+        sendResponse(false, 'Failed to fetch balances: ' . $e->getMessage());
+    }
+}
+
+function updateLeaveBalance($db, $input) {
+    if (!isset($input['employee_id']) || !isset($input['year'])) {
+        sendResponse(false, 'Missing parameters');
+    }
+
+    $eid = (int)$input['employee_id'];
+    $year = (int)$input['year'];
+    $quarter = 1; // Treat as Annual
+    
+    $sl = (float)($input['sl'] ?? 0);
+    $cl = (float)($input['cl'] ?? 0);
+    $pl = (float)($input['pl'] ?? 0);
+    $usl = (float)($input['used_sl'] ?? 0);
+    $ucl = (float)($input['used_cl'] ?? 0);
+    $upl = (float)($input['used_pl'] ?? 0);
+
+    try {
+        $query = "INSERT INTO leave_balances (employee_id, year, quarter, sl, cl, pl, used_sl, used_cl, used_pl) 
+                  VALUES (:eid, :y, :q, :sl, :cl, :pl, :usl, :ucl, :upl)
+                  ON DUPLICATE KEY UPDATE sl=:sl, cl=:cl, pl=:pl, used_sl=:usl, used_cl=:ucl, used_pl=:upl";
+        
+        if (DB_TYPE === 'sqlite') {
+            $query = "INSERT INTO leave_balances (employee_id, year, quarter, sl, cl, pl, used_sl, used_cl, used_pl) 
+                      VALUES (:eid, :y, :q, :sl, :cl, :pl, :usl, :ucl, :upl)
+                      ON CONFLICT(employee_id, year, quarter) DO UPDATE SET sl=:sl, cl=:cl, pl=:pl, used_sl=:usl, used_cl=:ucl, used_pl=:upl";
+        }
+
+        $stmt = $db->prepare($query);
+        $stmt->execute([
+            ':eid' => $eid,
+            ':y' => $year,
+            ':q' => $quarter,
+            ':sl' => $sl,
+            ':cl' => $cl,
+            ':pl' => $pl,
+            ':usl' => $usl,
+            ':ucl' => $ucl,
+            ':upl' => $upl
+        ]);
+        sendResponse(true, 'Balance updated successfully');
+    } catch (PDOException $e) {
+        sendResponse(false, 'Database failure: ' . $e->getMessage());
     }
 }
 ?>
